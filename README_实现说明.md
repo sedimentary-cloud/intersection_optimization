@@ -41,6 +41,7 @@ examples/demo_signal_timing.py  可运行示例
 examples/plot_signal_gantt.py  甘特图示例
 examples/four_approach_overlap_case.py  4 进口 x 2 流向 + 搭接相位复杂案例
 examples/four_approach_sequence_case.py  指定相位顺序约束案例
+examples/four_approach_strict_green_case.py  额外绿灯规则案例
 ```
 
 ## 3. 运行测试
@@ -50,7 +51,7 @@ cd /mnt/e/PythonProjects/intersection_milp
 /home/qktx/artery_milp/conda-envs/artery_milp/bin/python -m unittest discover -s tests -t . -v
 ```
 
-当前测试共 **67** 个，覆盖：
+当前测试共 **69** 个，覆盖：
 
 - 数据层：覆盖性、正需求/正能力、未知流线、时间参数、lost_time 引用、严格清空时间、静态可行性预检；
 - 约束描述层：Trigger 三分类、ConstraintSpec 校验；
@@ -63,7 +64,8 @@ cd /mnt/e/PythonProjects/intersection_milp
   验证最小绿 >10s、需求满足、搭接相位不劣于纯对称方案；
 - 指定相位顺序约束/分层参考顺序：南北组（直行 → 搭接 → 左转）→
   东西组（直行 → 搭接 → 左转）；
-- 分层参考顺序：支持“同层相位可互换”的全局参考顺序和 `hard`/`prefer`/`soft` 三种模式。
+- 分层参考顺序：支持“同层相位可互换”的全局参考顺序和 `hard`/`prefer`/`soft` 三种模式；
+- 额外绿灯规则：所有选中相位绿灯 ≥15s、`P5_N_THLT + P2_NS_LT ≥ 32s`。
 
 ## 4. 与设计文档的对应
 

@@ -6,6 +6,7 @@ from signal_timing import (
     ConstraintSpec,
     DataValidationError,
     LexicographicOptimizer,
+    Trigger,
     make_reference_order_filter,
 )
 from tests.helpers import four_approach_data
@@ -122,6 +123,48 @@ class TestFourApproachOverlapCase(unittest.TestCase):
             ["P1_NS_TH", "P5_N_THLT", "P6_S_THLT", "P3_EW_TH", "P4_EW_LT"],
         )
         self.assertTrue(result.verification["passed"])
+
+    def test_strict_green_and_p5_p2_sum_rule(self):
+        ref_groups = [
+            ("P1_NS_TH",),
+            ("P5_N_THLT", "P6_S_THLT"),
+            ("P2_NS_LT",),
+            ("P3_EW_TH",),
+            ("P7_E_THLT", "P8_W_THLT"),
+            ("P4_EW_LT",),
+        ]
+        data = four_approach_data(
+            include_overlap=True,
+            include_ew_overlap=True,
+            reference_order=ref_groups,
+        )
+        data.g_min = 15.0
+        opt = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=30.0)
+        opt.add_constraint(
+            ConstraintSpec(
+                name="force_P2_NS_LT",
+                coeffs={("y", "P2_NS_LT"): 1.0},
+                sense=">=",
+                rhs=1.0,
+            )
+        )
+        opt.add_constraint(
+            ConstraintSpec(
+                name="P5_plus_P2_min_32",
+                coeffs={("g", "P5_N_THLT"): 1.0, ("g", "P2_NS_LT"): 1.0},
+                sense=">=",
+                rhs=32.0,
+                trigger=Trigger.all_of("P5_N_THLT", "P2_NS_LT"),
+            )
+        )
+        result = opt.solve(reference_mode="hard", allow_cycle_reduction=True)
+        self.assertTrue(result.verification["passed"])
+        for pid in result.selected:
+            self.assertGreaterEqual(result.greens[pid], 15.0 - 1e-6)
+        self.assertGreaterEqual(
+            result.greens["P5_N_THLT"] + result.greens["P2_NS_LT"],
+            32.0 - 1e-6,
+        )
 
     def test_ns_then_ew_reference_order(self):
         ref_groups = [
