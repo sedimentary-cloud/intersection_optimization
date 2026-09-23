@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from signal_timing import ConstraintSpec, LexicographicOptimizer
+from signal_timing import (
+    ConstraintSpec,
+    DataValidationError,
+    LexicographicOptimizer,
+    make_reference_order_filter,
+)
 from tests.helpers import four_approach_data
 
 
@@ -82,6 +87,107 @@ class TestFourApproachOverlapCase(unittest.TestCase):
         self.assertIn("P2_NS_LT", result.selected)
         for pid in result.selected:
             self.assertGreaterEqual(result.greens[pid], data.g_min - 1e-6)
+
+    def test_reference_order_filter_and_data_validation(self):
+        # 数据层要求 reference_order 覆盖全部候选相位
+        with self.assertRaises(DataValidationError):
+            four_approach_data(
+                include_overlap=True,
+                reference_order=["P1_NS_TH", "P5_N_THLT"],
+            )
+        ref = [
+            "P1_NS_TH", "P5_N_THLT", "P6_S_THLT",
+            "P3_EW_TH", "P2_NS_LT", "P4_EW_LT",
+        ]
+        flt = make_reference_order_filter(ref)
+        self.assertTrue(flt(("P1_NS_TH", "P5_N_THLT", "P3_EW_TH")))
+        self.assertFalse(flt(("P1_NS_TH", "P3_EW_TH", "P5_N_THLT")))
+        self.assertFalse(flt(("P1_NS_TH", "P6_S_THLT", "P5_N_THLT")))
+
+    def test_reference_order_hard_mode(self):
+        ref = [
+            "P1_NS_TH", "P5_N_THLT", "P6_S_THLT",
+            "P3_EW_TH", "P2_NS_LT", "P4_EW_LT",
+        ]
+        data = four_approach_data(include_overlap=True)
+        result = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=30.0).solve(
+            reference_order=ref,
+            reference_mode="hard",
+            allow_cycle_reduction=True,
+        )
+        # 未强制 P2 时选中集合不含 P2，参考顺序诱导出：
+        # P1 -> P5 -> P6 -> P3 -> P4
+        self.assertEqual(
+            result.order,
+            ["P1_NS_TH", "P5_N_THLT", "P6_S_THLT", "P3_EW_TH", "P4_EW_LT"],
+        )
+        self.assertTrue(result.verification["passed"])
+
+    def test_grouped_reference_order_allows_ties(self):
+        ref_groups = [
+            ("P1_NS_TH",),
+            ("P5_N_THLT", "P6_S_THLT"),
+            ("P3_EW_TH",),
+            ("P2_NS_LT", "P4_EW_LT"),
+        ]
+        data = four_approach_data(include_overlap=True, reference_order=ref_groups)
+        opt = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=30.0)
+        opt.add_constraint(
+            ConstraintSpec(
+                name="force_P2_NS_LT",
+                coeffs={("y", "P2_NS_LT"): 1.0},
+                sense=">=",
+                rhs=1.0,
+            )
+        )
+        result = opt.solve(reference_mode="hard", allow_cycle_reduction=True)
+        # 第 4 层内 P2/P4 可互换；硬模式枚举层内排列后选择浪费更小的顺序
+        self.assertEqual(
+            result.order,
+            ["P1_NS_TH", "P5_N_THLT", "P3_EW_TH", "P4_EW_LT", "P2_NS_LT"],
+        )
+        self.assertEqual(set(result.order[-2:]), {"P2_NS_LT", "P4_EW_LT"})
+        self.assertAlmostEqual(result.cycle, 115.541, places=2)
+        self.assertTrue(result.verification["passed"])
+
+    def test_reference_order_with_forced_p2(self):
+        ref = [
+            "P1_NS_TH", "P5_N_THLT", "P6_S_THLT",
+            "P3_EW_TH", "P2_NS_LT", "P4_EW_LT",
+        ]
+        data = four_approach_data(include_overlap=True, reference_order=ref)
+        opt = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=30.0)
+        opt.add_constraint(
+            ConstraintSpec(
+                name="force_P2_NS_LT",
+                coeffs={("y", "P2_NS_LT"): 1.0},
+                sense=">=",
+                rhs=1.0,
+            )
+        )
+        # 使用 data.reference_order，硬模式
+        result = opt.solve(reference_mode="hard", allow_cycle_reduction=True)
+        self.assertEqual(result.order[0], "P1_NS_TH")
+        self.assertEqual(set(result.order[-2:]), {"P2_NS_LT", "P4_EW_LT"})
+        self.assertTrue(result.verification["passed"])
+
+    def test_reference_order_prefer_falls_back(self):
+        # 构造一个 hard order 不可行、但全枚举可行的参考顺序：
+        # 参考顺序把 P6 放在 P5 前面；当前选中集合 P1,P3,P4,P5,P6，
+        # hard order = P1 -> P6 -> P5 -> P3 -> P4，通常仍可行；
+        # 这里只验证 prefer 模式能返回一个合法顺序。
+        ref = [
+            "P1_NS_TH", "P6_S_THLT", "P5_N_THLT",
+            "P3_EW_TH", "P2_NS_LT", "P4_EW_LT",
+        ]
+        data = four_approach_data(include_overlap=True)
+        result = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=30.0).solve(
+            reference_order=ref,
+            reference_mode="prefer",
+            allow_cycle_reduction=True,
+        )
+        self.assertIsNotNone(result.order)
+        self.assertTrue(result.verification["passed"])
 
     def test_overlap_does_not_increase_cycle(self):
         _, overlap = self._solve(include_overlap=True)

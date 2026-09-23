@@ -94,7 +94,10 @@ def compiler_registry(
     return reg
 
 
-def four_approach_data(include_overlap: bool = True) -> IntersectionData:
+def four_approach_data(
+    include_overlap: bool = True,
+    reference_order=None,
+) -> IntersectionData:
     """4 进口 x 2 流向案例：对称相位 + 南北直行左转搭接相位。"""
     demands = {
         "N_left": 240.0,
@@ -141,4 +144,5 @@ def four_approach_data(include_overlap: bool = True) -> IntersectionData:
         g_min=11.0,
         c_min=40.0,
         c_max=180.0,
+        reference_order=reference_order,
     )

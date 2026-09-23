@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .exceptions import DataValidationError
 
@@ -74,6 +74,7 @@ class IntersectionData:
         *,
         strict_clearance: bool = True,
         static_precheck: bool = True,
+        reference_order: Optional[Sequence[str]] = None,
     ) -> None:
         self.movements: Dict[str, Movement] = dict(movements)
         self.phases: Dict[str, Phase] = dict(phases)
@@ -85,11 +86,48 @@ class IntersectionData:
         self.c_max = float(c_max)
         self.strict_clearance = bool(strict_clearance)
         self.static_precheck = bool(static_precheck)
+        self.reference_order: Optional[Tuple[str, ...]] = None
+        self._validate_reference_order(reference_order)
         self.validate()
 
     # ------------------------------------------------------------------ #
     # 校验
     # ------------------------------------------------------------------ #
+    def _validate_reference_order(self, reference_order) -> None:
+        """校验分层参考顺序。
+
+        ``reference_order`` 可以是：
+        - 扁平字符串序列：每个相位一层；
+        - 嵌套序列：每个元素是一层，层内相位可互换。
+
+        例如：``["P1", ("P5", "P6"), "P3", ("P2", "P4")]``
+
+        要求所有候选相位恰好出现一次。
+        """
+        if reference_order is None:
+            return
+        groups = []
+        for item in reference_order:
+            if isinstance(item, str):
+                group = (item,)
+            else:
+                group = tuple(str(p) for p in item)
+            if not group:
+                raise DataValidationError("reference_order 中存在空分组")
+            groups.append(group)
+        flat = [p for group in groups for p in group]
+        if len(flat) != len(set(flat)):
+            raise DataValidationError("reference_order 中存在重复相位")
+        unknown = [p for p in flat if p not in self.phases]
+        if unknown:
+            raise DataValidationError(f"reference_order 引用了未知相位: {unknown}")
+        missing = [p for p in self.phase_ids if p not in flat]
+        if missing:
+            raise DataValidationError(
+                f"reference_order 必须包含全部候选相位；缺少: {missing}"
+            )
+        self.reference_order = tuple(groups)
+
     def validate(self) -> None:
         if not self.movements:
             raise DataValidationError("movements 不能为空")

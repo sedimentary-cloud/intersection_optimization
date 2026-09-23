@@ -27,6 +27,43 @@ from .variables import VarKey, VarRegistry
 OrderFilter = Callable[[Tuple[str, ...]], bool]
 
 
+def _normalize_reference_groups(reference_order) -> Tuple[Tuple[str, ...], ...]:
+    groups = []
+    for item in reference_order:
+        if isinstance(item, str):
+            group = (item,)
+        else:
+            group = tuple(str(p) for p in item)
+        if not group:
+            raise OrderingError("reference_order 中存在空分组")
+        groups.append(group)
+    return tuple(groups)
+
+
+def make_reference_order_filter(reference_order) -> OrderFilter:
+    """根据分层参考顺序生成 order_filter。
+
+    ``reference_order`` 可以是扁平序列，也可以是嵌套分组：
+    ``["P1", ("P5", "P6"), "P3", ("P2", "P4")]``。
+
+    规则：``order`` 中每个相位的层级索引必须非递减；同层相位可互换。
+    """
+    groups = _normalize_reference_groups(reference_order)
+    tier = {p: i for i, group in enumerate(groups) for p in group}
+
+    def order_filter(order):
+        last = -1
+        for p in order:
+            if p not in tier:
+                return False
+            if tier[p] < last:
+                return False
+            last = tier[p]
+        return True
+
+    return order_filter
+
+
 @dataclass
 class OrderingResult:
     order: List[str]
@@ -67,8 +104,21 @@ class OrderingPostProcessor:
         *,
         cycle_fixed: bool = False,
         order_filter: Optional[OrderFilter] = None,
+        reference_order: Optional[Sequence[str]] = None,
+        reference_mode: str = "prefer",
+        reference_tolerance: float = 1e-3,
     ) -> Optional[OrderingResult]:
-        """返回最优排序结果；所有合法排序都不可行时返回 None。"""
+        """返回最优排序结果；所有合法排序都不可行时返回 None。
+
+        reference_mode：
+        - ``none``：忽略参考顺序；
+        - ``prefer``：先尝试与参考顺序一致的顺序，不可行再回退到全枚举；
+        - ``hard``：只允许与参考顺序一致的顺序。
+        """
+        if reference_mode not in ("none", "prefer", "soft", "hard"):
+            raise OrderingError(
+                "reference_mode 必须是 'none' / 'prefer' / 'soft' / 'hard'"
+            )
         selected = list(dict.fromkeys(selected))
         if not selected:
             raise OrderingError("selected 相位集不能为空")
@@ -77,7 +127,29 @@ class OrderingPostProcessor:
             raise OrderingError(f"selected 含未知相位: {missing}")
 
         selected_sorted = sorted(selected)
+        ref = reference_order if reference_order is not None else self.data.reference_order
+        if ref is not None and reference_mode != "none":
+            ref = self._normalize_reference_order(ref)
+
+        # ---- hard 模式：只允许分层参考顺序一致的顺序 ----
+        if ref is not None and reference_mode == "hard":
+            best: Optional[OrderingResult] = None
+            for order in self._reference_consistent_orders(selected_sorted, ref):
+                if order_filter is not None and not order_filter(order):
+                    continue
+                res = self._solve_order(order, float(cycle_upper), cycle_fixed=cycle_fixed)
+                if res is None:
+                    continue
+                if best is None or res.objective < best.objective - 1e-12:
+                    best = res
+            if best is None:
+                return None
+            best.message = f"hard reference order {best.order}; reference={ref}"
+            return best
+
+        # ---- none / soft / prefer：全枚举；soft 用参考顺序做次级偏好 ----
         best: Optional[OrderingResult] = None
+        best_deviation = 0
         feasible_count = 0
         considered = 0
         for order in itertools.permutations(selected_sorted):
@@ -88,15 +160,95 @@ class OrderingPostProcessor:
             if res is None:
                 continue
             feasible_count += 1
-            if best is None or res.objective < best.objective - 1e-12:
+            deviation = 0
+            if ref is not None and reference_mode in ("soft", "prefer"):
+                deviation = self._reference_deviation(order, ref)
+            if best is None:
                 best = res
+                best_deviation = deviation
+                continue
+            # 目标函数显著更优 -> 替换（主目标优先）
+            tol = abs(best.objective) * reference_tolerance + 1e-9
+            if res.objective < best.objective - tol:
+                best = res
+                best_deviation = deviation
+            # 目标函数在容差内 -> 用参考偏差做次级排序
+            elif (
+                res.objective <= best.objective + tol
+                and deviation < best_deviation
+            ):
+                best = res
+                best_deviation = deviation
         if best is None:
             return None
         best.message = (
             f"permutations total={math.factorial(len(selected))}, considered={considered}, "
-            f"feasible={feasible_count}, selected={best.order}"
+            f"feasible={feasible_count}, selected={best.order}, "
+            f"reference_mode={reference_mode}" +
+            (f", reference_deviation={best_deviation}" if ref is not None else "")
         )
         return best
+
+    # ------------------------------------------------------------------ #
+    # 参考顺序辅助
+    # ------------------------------------------------------------------ #
+    def _normalize_reference_order(self, reference_order) -> Tuple[Tuple[str, ...], ...]:
+        groups = _normalize_reference_groups(reference_order)
+        flat = [p for group in groups for p in group]
+        if len(flat) != len(set(flat)):
+            raise OrderingError("reference_order 中存在重复相位")
+        unknown = [p for p in flat if p not in self.data.phases]
+        if unknown:
+            raise OrderingError(f"reference_order 引用了未知相位: {unknown}")
+        missing = [p for p in self.data.phase_ids if p not in flat]
+        groups = groups + tuple((p,) for p in missing)
+        return groups
+
+    @staticmethod
+    def _reference_deviation(order: Sequence[str], reference_groups) -> int:
+        """相对分层参考顺序的层级逆序对数。"""
+        tier = {
+            p: i
+            for i, group in enumerate(reference_groups)
+            for p in group
+        }
+        seq = [tier[p] for p in order if p in tier]
+        inversions = 0
+        for i in range(len(seq)):
+            for j in range(i + 1, len(seq)):
+                if seq[i] > seq[j]:
+                    inversions += 1
+        return inversions
+
+    @staticmethod
+    def _reference_consistent_orders(
+        selected_sorted: Sequence[str], reference_groups
+    ) -> List[Tuple[str, ...]]:
+        """枚举所有与分层参考顺序一致的顺序（层内任意排列）。"""
+        selected_set = set(selected_sorted)
+        group_lists: List[List[str]] = []
+        for group in reference_groups:
+            inside = [p for p in group if p in selected_set]
+            if inside:
+                group_lists.append(inside)
+        known = {p for group in reference_groups for p in group}
+        for p in selected_sorted:
+            if p not in known:
+                group_lists.append([p])
+        if not group_lists:
+            return [tuple(selected_sorted)]
+        perms_per_group = [list(itertools.permutations(group)) for group in group_lists]
+        orders: List[Tuple[str, ...]] = []
+        for combo in itertools.product(*perms_per_group):
+            orders.append(tuple(p for perm in combo for p in perm))
+        # 去重并保持稳定顺序
+        seen = set()
+        unique = []
+        for order in orders:
+            if order not in seen:
+                seen.add(order)
+                unique.append(order)
+        return unique
 
     # ------------------------------------------------------------------ #
     # 单个排序的 LP

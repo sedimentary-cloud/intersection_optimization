@@ -7,7 +7,9 @@
    如果存在东西直行相位 ``P3_EW_TH``，它应排在搭接相位之后、左转之前。
 
 实现方式：
-- 顺序约束用 ``OrderingPostProcessor`` 的 ``order_filter(order) -> bool`` 表达；
+- 给 ``IntersectionData`` 提供一个覆盖全部候选相位的 ``reference_order``；
+- 第二阶段用 ``reference_mode='prefer'``：先尝试与参考顺序一致的顺序，
+  不可行再回退到全枚举；
 - 由于当前最优解不主动选择 ``P2_NS_LT``，为了让"两个左转"都出现在顺序中，
   额外加一条硬约束 ``y(P2_NS_LT) >= 1`` 强制选中 P2。
 
@@ -30,6 +32,14 @@ from signal_timing import (
     Phase,
 )
 from signal_timing.plotting import plot_movement_release_gantt
+
+
+REFERENCE_ORDER = [
+    ("P1_NS_TH",),                  # 1. 南北直行
+    ("P5_N_THLT", "P6_S_THLT"),     # 2. 两个南北搭接相位，层内可互换
+    ("P3_EW_TH",),                  # 3. 东西直行
+    ("P2_NS_LT", "P4_EW_LT"),       # 4. 两个左转相位，层内可互换
+]
 
 
 def build_data() -> IntersectionData:
@@ -66,37 +76,8 @@ def build_data() -> IntersectionData:
         g_min=11.0,
         c_min=40.0,
         c_max=180.0,
+        reference_order=REFERENCE_ORDER,
     )
-
-
-def make_sequence_filter():
-    """返回满足指定相位顺序的 order_filter。"""
-
-    def order_filter(order):
-        order = list(order)
-        pos = {p: i for i, p in enumerate(order)}
-
-        # 1) 南北直行必须第一
-        if order[0] != "P1_NS_TH":
-            return False
-
-        # 2) 最后两个必须是两个左转相位（内部顺序任意）
-        if set(order[-2:]) != {"P2_NS_LT", "P4_EW_LT"}:
-            return False
-
-        # 3) 至少出现一个南北直行左转搭接相位
-        overlaps = [p for p in ("P5_N_THLT", "P6_S_THLT") if p in pos]
-        if not overlaps:
-            return False
-
-        # 4) 东西直行（若存在）排在搭接相位之后、左转之前
-        if "P3_EW_TH" in pos:
-            for p in overlaps:
-                if not (pos[p] < pos["P3_EW_TH"]):
-                    return False
-        return True
-
-    return order_filter
 
 
 def main() -> None:
@@ -115,7 +96,7 @@ def main() -> None:
     )
 
     result = opt.solve(
-        order_filter=make_sequence_filter(),
+        reference_mode="prefer",   # 先尝试参考顺序，不可行再回退
         allow_cycle_reduction=True,
     )
 
@@ -140,6 +121,12 @@ def main() -> None:
     ok_first = order[0] == "P1_NS_TH"
     ok_last = set(order[-2:]) == {"P2_NS_LT", "P4_EW_LT"}
     print(f"顺序规则检查：首相位南北直行={ok_first}，最后两个为左转={ok_last}")
+    print(
+        "参考顺序："
+        + " → ".join(
+            "[" + ", ".join(group) + "]" for group in REFERENCE_ORDER
+        )
+    )
 
     out_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),

@@ -152,6 +152,9 @@ class LexicographicOptimizer:
         *,
         run_ordering: bool = True,
         allow_cycle_reduction: bool = True,
+        reference_order: Optional[Sequence[str]] = None,
+        reference_mode: str = "prefer",
+        reference_tolerance: float = 1e-3,
     ) -> OptimizationResult:
         pipeline = LexicographicPipeline(
             self.data,
@@ -185,6 +188,12 @@ class LexicographicOptimizer:
         fallback_cuts = 0
         last_selected = list(stage1.selected)
 
+        effective_reference = (
+            list(reference_order) if reference_order is not None else (
+                list(self.data.reference_order) if self.data.reference_order is not None else None
+            )
+        )
+
         ordering_result: Optional[OrderingResult] = None
         if run_ordering:
             while True:
@@ -200,6 +209,9 @@ class LexicographicOptimizer:
                         cycle_cap,
                         cycle_fixed=True,
                         order_filter=order_filter,
+                        reference_order=effective_reference,
+                        reference_mode=reference_mode,
+                        reference_tolerance=reference_tolerance,
                     )
                 elif allow_cycle_reduction:
                     # §9.5：第二阶段允许 C ∈ [c_min, C*]，回收保守清空时间损失
@@ -208,6 +220,9 @@ class LexicographicOptimizer:
                         cycle_cap,
                         cycle_fixed=False,
                         order_filter=order_filter,
+                        reference_order=effective_reference,
+                        reference_mode=reference_mode,
+                        reference_tolerance=reference_tolerance,
                     )
                 else:
                     ordering_result = processor.process(
@@ -215,6 +230,9 @@ class LexicographicOptimizer:
                         stage1.cycle,
                         cycle_fixed=True,
                         order_filter=order_filter,
+                        reference_order=effective_reference,
+                        reference_mode=reference_mode,
+                        reference_tolerance=reference_tolerance,
                     )
                 if ordering_result is not None:
                     break

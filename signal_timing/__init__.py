@@ -25,7 +25,7 @@ from .exceptions import (
     SignalTimingError,
 )
 from .optimizer import LexicographicOptimizer
-from .ordering import OrderingPostProcessor, OrderingResult
+from .ordering import OrderingPostProcessor, OrderingResult, make_reference_order_filter
 from .result import OptimizationResult, RoundTrace, Stage1Result
 from .variables import VarKey, VarRegistry
 
@@ -53,6 +53,7 @@ __all__ = [
     "LexicographicOptimizer",
     "OrderingPostProcessor",
     "OrderingResult",
+    "make_reference_order_filter",
     "OptimizationResult",
     "RoundTrace",
     "Stage1Result",
