@@ -123,6 +123,37 @@ class TestFourApproachOverlapCase(unittest.TestCase):
         )
         self.assertTrue(result.verification["passed"])
 
+    def test_ns_then_ew_reference_order(self):
+        ref_groups = [
+            ("P1_NS_TH",),                  # 南北直行
+            ("P5_N_THLT", "P6_S_THLT"),     # 南北搭接
+            ("P2_NS_LT",),                  # 南北左转
+            ("P3_EW_TH",),                  # 东西直行
+            ("P7_E_THLT", "P8_W_THLT"),     # 东西搭接
+            ("P4_EW_LT",),                  # 东西左转
+        ]
+        data = four_approach_data(
+            include_overlap=True,
+            include_ew_overlap=True,
+            reference_order=ref_groups,
+        )
+        opt = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=30.0)
+        opt.add_constraint(
+            ConstraintSpec(
+                name="force_P2_NS_LT",
+                coeffs={("y", "P2_NS_LT"): 1.0},
+                sense=">=",
+                rhs=1.0,
+            )
+        )
+        result = opt.solve(reference_mode="hard", allow_cycle_reduction=True)
+        # 南北组：P1 -> P5 -> P2；东西组：P3 -> P4（东西搭接 P7/P8 未选中）
+        self.assertEqual(
+            result.order,
+            ["P1_NS_TH", "P5_N_THLT", "P2_NS_LT", "P3_EW_TH", "P4_EW_LT"],
+        )
+        self.assertTrue(result.verification["passed"])
+
     def test_grouped_reference_order_allows_ties(self):
         ref_groups = [
             ("P1_NS_TH",),

@@ -160,25 +160,31 @@ class OrderingPostProcessor:
             if res is None:
                 continue
             feasible_count += 1
-            deviation = 0
-            if ref is not None and reference_mode in ("soft", "prefer"):
-                deviation = self._reference_deviation(order, ref)
+            use_reference = ref is not None and reference_mode in ("soft", "prefer")
+            deviation = (
+                self._reference_deviation(order, ref) if use_reference else 0
+            )
             if best is None:
                 best = res
                 best_deviation = deviation
                 continue
-            # 目标函数显著更优 -> 替换（主目标优先）
-            tol = abs(best.objective) * reference_tolerance + 1e-9
-            if res.objective < best.objective - tol:
-                best = res
-                best_deviation = deviation
-            # 目标函数在容差内 -> 用参考偏差做次级排序
-            elif (
-                res.objective <= best.objective + tol
-                and deviation < best_deviation
-            ):
-                best = res
-                best_deviation = deviation
+            if use_reference:
+                # 目标函数显著更优 -> 替换；容差内 -> 用参考偏差做次级排序
+                tol = abs(best.objective) * reference_tolerance + 1e-9
+                if res.objective < best.objective - tol:
+                    best = res
+                    best_deviation = deviation
+                elif (
+                    res.objective <= best.objective + tol
+                    and deviation < best_deviation
+                ):
+                    best = res
+                    best_deviation = deviation
+            else:
+                # 无参考顺序：保持原始严格目标比较
+                if res.objective < best.objective - 1e-12:
+                    best = res
+                    best_deviation = 0
         if best is None:
             return None
         best.message = (

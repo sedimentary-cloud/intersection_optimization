@@ -97,6 +97,7 @@ def compiler_registry(
 def four_approach_data(
     include_overlap: bool = True,
     reference_order=None,
+    include_ew_overlap: bool = False,
 ) -> IntersectionData:
     """4 进口 x 2 流向案例：对称相位 + 南北直行左转搭接相位。"""
     demands = {
@@ -124,6 +125,13 @@ def four_approach_data(
         phases["P6_S_THLT"] = Phase(
             "P6_S_THLT", {"S_thr": c_thr, "S_left": c_left}
         )
+    if include_ew_overlap:
+        phases["P7_E_THLT"] = Phase(
+            "P7_E_THLT", {"E_thr": c_thr, "E_left": c_left}
+        )
+        phases["P8_W_THLT"] = Phase(
+            "P8_W_THLT", {"W_thr": c_thr, "W_left": c_left}
+        )
     groups = {
         "P1_NS_TH": "NS",
         "P2_NS_LT": "NS",
@@ -131,6 +139,8 @@ def four_approach_data(
         "P6_S_THLT": "NS",
         "P3_EW_TH": "EW",
         "P4_EW_LT": "EW",
+        "P7_E_THLT": "EW",
+        "P8_W_THLT": "EW",
     }
     lost = {}
     for i in phases:

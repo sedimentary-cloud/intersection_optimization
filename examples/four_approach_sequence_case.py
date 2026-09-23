@@ -1,16 +1,20 @@
 """4 进口 x 2 流向 + 南北搭接 + 指定相位顺序约束。
 
 顺序要求：
-1. 第一相位必须是南北直行 ``P1_NS_TH``；
-2. 然后是南北直行左转搭接相位 ``P5_N_THLT`` 或 ``P6_S_THLT``；
-3. 最后两个相位必须是两个左转相位 ``P2_NS_LT`` 和 ``P4_EW_LT``（两者内部顺序任意）。
-   如果存在东西直行相位 ``P3_EW_TH``，它应排在搭接相位之后、左转之前。
+南北组：直行 → 搭接 → 左转；然后东西组：直行 → 搭接 → 左转。
+
+具体到相位池：
+1. 南北直行 ``P1_NS_TH``；
+2. 南北搭接 ``P5_N_THLT`` / ``P6_S_THLT``（层内可互换）；
+3. 南北左转 ``P2_NS_LT``；
+4. 东西直行 ``P3_EW_TH``；
+5. 东西搭接 ``P7_E_THLT`` / ``P8_W_THLT``（层内可互换）；
+6. 东西左转 ``P4_EW_LT``。
 
 实现方式：
-- 给 ``IntersectionData`` 提供一个覆盖全部候选相位的 ``reference_order``；
-- 第二阶段用 ``reference_mode='prefer'``：先尝试与参考顺序一致的顺序，
-  不可行再回退到全枚举；
-- 由于当前最优解不主动选择 ``P2_NS_LT``，为了让"两个左转"都出现在顺序中，
+- 给 ``IntersectionData`` 提供一个覆盖全部候选相位的分层 ``reference_order``；
+- 第二阶段用 ``reference_mode='hard'`` 严格按参考层级枚举顺序；
+- 由于当前最优解不主动选择 ``P2_NS_LT``，为了让南北左转出现在顺序中，
   额外加一条硬约束 ``y(P2_NS_LT) >= 1`` 强制选中 P2。
 
 运行：
@@ -30,15 +34,20 @@ from signal_timing import (
     LexicographicOptimizer,
     Movement,
     Phase,
+    make_reference_order_filter,
 )
 from signal_timing.plotting import plot_movement_release_gantt
 
 
 REFERENCE_ORDER = [
-    ("P1_NS_TH",),                  # 1. 南北直行
-    ("P5_N_THLT", "P6_S_THLT"),     # 2. 两个南北搭接相位，层内可互换
-    ("P3_EW_TH",),                  # 3. 东西直行
-    ("P2_NS_LT", "P4_EW_LT"),       # 4. 两个左转相位，层内可互换
+    # 南北组：直行 → 搭接 → 左转
+    ("P1_NS_TH",),                  # 南北直行
+    ("P5_N_THLT", "P6_S_THLT"),     # 南北搭接，层内可互换
+    ("P2_NS_LT",),                  # 南北左转
+    # 东西组：直行 → 搭接 → 左转
+    ("P3_EW_TH",),                  # 东西直行
+    ("P7_E_THLT", "P8_W_THLT"),     # 东西搭接，层内可互换
+    ("P4_EW_LT",),                  # 东西左转
 ]
 
 
@@ -58,11 +67,14 @@ def build_data() -> IntersectionData:
         "P4_EW_LT": Phase("P4_EW_LT", {"E_left": c_left, "W_left": c_left}),
         "P5_N_THLT": Phase("P5_N_THLT", {"N_thr": c_thr, "N_left": c_left}),
         "P6_S_THLT": Phase("P6_S_THLT", {"S_thr": c_thr, "S_left": c_left}),
+        "P7_E_THLT": Phase("P7_E_THLT", {"E_thr": c_thr, "E_left": c_left}),
+        "P8_W_THLT": Phase("P8_W_THLT", {"W_thr": c_thr, "W_left": c_left}),
     }
     groups = {
         "P1_NS_TH": "NS", "P2_NS_LT": "NS",
         "P5_N_THLT": "NS", "P6_S_THLT": "NS",
         "P3_EW_TH": "EW", "P4_EW_LT": "EW",
+        "P7_E_THLT": "EW", "P8_W_THLT": "EW",
     }
     lost = {}
     for i in phases:
@@ -96,7 +108,7 @@ def main() -> None:
     )
 
     result = opt.solve(
-        reference_mode="prefer",   # 先尝试参考顺序，不可行再回退
+        reference_mode="hard",     # 严格按“南北组 → 东西组”的参考层级
         allow_cycle_reduction=True,
     )
 
@@ -116,11 +128,10 @@ def main() -> None:
         print(f"{p:<12s} {result.greens[p]:>10.2f} {served:<28s}")
     print("=" * 78)
 
-    # 检查顺序是否满足规则
+    # 检查顺序是否满足分层参考顺序
     order = list(result.order)
-    ok_first = order[0] == "P1_NS_TH"
-    ok_last = set(order[-2:]) == {"P2_NS_LT", "P4_EW_LT"}
-    print(f"顺序规则检查：首相位南北直行={ok_first}，最后两个为左转={ok_last}")
+    ok_tier = make_reference_order_filter(REFERENCE_ORDER)(tuple(order))
+    print(f"顺序规则检查：满足分层参考顺序={ok_tier}")
     print(
         "参考顺序："
         + " → ".join(
