@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from signal_timing import LexicographicOptimizer
+from signal_timing import ConstraintSpec, LexicographicOptimizer
 from tests.helpers import four_approach_data
 
 
@@ -44,6 +44,42 @@ class TestFourApproachOverlapCase(unittest.TestCase):
         self.assertTrue(result.selected)
         # 没有搭接相位可选时，只能从 4 个对称相位中选择
         self.assertTrue(set(result.selected) <= {"P1_NS_TH", "P2_NS_LT", "P3_EW_TH", "P4_EW_LT"})
+        for pid in result.selected:
+            self.assertGreaterEqual(result.greens[pid], data.g_min - 1e-6)
+
+    def test_sequence_order_constraint(self):
+        def sequence_filter(order):
+            order = list(order)
+            if order[0] != "P1_NS_TH":
+                return False
+            if set(order[-2:]) != {"P2_NS_LT", "P4_EW_LT"}:
+                return False
+            pos = {p: i for i, p in enumerate(order)}
+            overlaps = [p for p in ("P5_N_THLT", "P6_S_THLT") if p in pos]
+            if not overlaps:
+                return False
+            if "P3_EW_TH" in pos:
+                for p in overlaps:
+                    if not (pos[p] < pos["P3_EW_TH"]):
+                        return False
+            return True
+
+        data = four_approach_data(include_overlap=True)
+        opt = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=30.0)
+        # 强制选中 P2_NS_LT，使"两个左转"都出现在顺序中
+        opt.add_constraint(
+            ConstraintSpec(
+                name="force_P2_NS_LT",
+                coeffs={("y", "P2_NS_LT"): 1.0},
+                sense=">=",
+                rhs=1.0,
+            )
+        )
+        result = opt.solve(order_filter=sequence_filter, allow_cycle_reduction=True)
+        self.assertTrue(result.verification["passed"])
+        self.assertEqual(result.order[0], "P1_NS_TH")
+        self.assertEqual(set(result.order[-2:]), {"P2_NS_LT", "P4_EW_LT"})
+        self.assertIn("P2_NS_LT", result.selected)
         for pid in result.selected:
             self.assertGreaterEqual(result.greens[pid], data.g_min - 1e-6)
 

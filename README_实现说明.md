@@ -40,6 +40,7 @@ tests/              unittest 测试套件
 examples/demo_signal_timing.py  可运行示例
 examples/plot_signal_gantt.py  甘特图示例
 examples/four_approach_overlap_case.py  4 进口 x 2 流向 + 搭接相位复杂案例
+examples/four_approach_sequence_case.py  指定相位顺序约束案例
 ```
 
 ## 3. 运行测试
@@ -49,7 +50,7 @@ cd /mnt/e/PythonProjects/intersection_milp
 /home/qktx/artery_milp/conda-envs/artery_milp/bin/python -m unittest discover -s tests -t . -v
 ```
 
-当前测试共 **61** 个，覆盖：
+当前测试共 **62** 个，覆盖：
 
 - 数据层：覆盖性、正需求/正能力、未知流线、时间参数、lost_time 引用、严格清空时间、静态可行性预检；
 - 约束描述层：Trigger 三分类、ConstraintSpec 校验；
@@ -59,7 +60,8 @@ cd /mnt/e/PythonProjects/intersection_milp
 - 集成：手算两相位算例、定点/自由周期一致性、周期回收、硬/软用户约束、对称性、单相位饱和极端、no-good cut 回退；
 - 可视化：甘特区间构造、周期/清空时间正确性、需求满足时刻计算、两种甘特图 PNG 输出；
 - 复杂案例：4 进口 x 2 流向、6 候选相位（4 对称 + 2 南北直行左转搭接），
-  验证最小绿 >10s、需求满足、搭接相位不劣于纯对称方案。
+  验证最小绿 >10s、需求满足、搭接相位不劣于纯对称方案；
+- 指定相位顺序约束：`P1_NS_TH → 搭接相位 → P3_EW_TH → P2/P4 左转`。
 
 ## 4. 与设计文档的对应
 
