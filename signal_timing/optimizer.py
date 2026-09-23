@@ -155,6 +155,7 @@ class LexicographicOptimizer:
         reference_order: Optional[Sequence[str]] = None,
         reference_mode: str = "prefer",
         reference_tolerance: float = 1e-3,
+        enforce_zero_slack: bool = False,
     ) -> OptimizationResult:
         pipeline = LexicographicPipeline(
             self.data,
@@ -212,6 +213,7 @@ class LexicographicOptimizer:
                         reference_order=effective_reference,
                         reference_mode=reference_mode,
                         reference_tolerance=reference_tolerance,
+                        enforce_zero_slack=enforce_zero_slack,
                     )
                 elif allow_cycle_reduction:
                     # §9.5：第二阶段允许 C ∈ [c_min, C*]，回收保守清空时间损失
@@ -223,6 +225,7 @@ class LexicographicOptimizer:
                         reference_order=effective_reference,
                         reference_mode=reference_mode,
                         reference_tolerance=reference_tolerance,
+                        enforce_zero_slack=enforce_zero_slack,
                     )
                 else:
                     ordering_result = processor.process(
@@ -233,6 +236,7 @@ class LexicographicOptimizer:
                         reference_order=effective_reference,
                         reference_mode=reference_mode,
                         reference_tolerance=reference_tolerance,
+                        enforce_zero_slack=enforce_zero_slack,
                     )
                 if ordering_result is not None:
                     break

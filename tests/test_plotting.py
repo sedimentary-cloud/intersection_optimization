@@ -45,6 +45,34 @@ class TestPlotting(unittest.TestCase):
             self.assertGreaterEqual(iv.duration, 0.0)
             self.assertLessEqual(iv.end, plan.cycle + 1e-6)
 
+    def test_enforce_zero_slack_fixed_cycle(self):
+        result = LexicographicOptimizer(self.data, mip_rel_gap=0.001).solve(
+            fixed_cycle=180.0,
+            enforce_zero_slack=True,
+        )
+        plan = build_schedule(self.data, result)
+        total_green = sum(result.greens[p] for p in result.selected)
+        self.assertAlmostEqual(result.cycle, 180.0)
+        self.assertAlmostEqual(
+            total_green + plan.clearance_total, 180.0, places=4
+        )
+        slack = [iv for iv in plan.intervals if iv.kind == "slack"]
+        self.assertFalse(slack)
+
+    def test_fixed_cycle_has_slack_interval(self):
+        result = LexicographicOptimizer(self.data, mip_rel_gap=0.001).solve(
+            fixed_cycle=180.0
+        )
+        self.assertAlmostEqual(result.cycle, 180.0)
+        plan = build_schedule(self.data, result)
+        self.assertAlmostEqual(plan.cycle, 180.0)
+        slack = [iv for iv in plan.intervals if iv.kind == "slack"]
+        self.assertTrue(slack)
+        self.assertGreater(slack[0].duration, 0.0)
+        self.assertLessEqual(
+            max(iv.end for iv in plan.intervals), plan.cycle + 1e-6
+        )
+
     def test_satisfaction_time_manual_plan(self):
         data = IntersectionData(
             movements={"E": Movement("E", 600.0)},

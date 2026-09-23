@@ -537,6 +537,7 @@ def plot_movement_release_gantt(
     sat_times = {mid: satisfaction_time(data, plan, mid) for mid in movements}
     unsatisfied = [mid for mid, t in sat_times.items() if t is None]
     clearance_intervals = [iv for iv in plan.intervals if iv.kind == "clearance"]
+    slack_intervals = [iv for iv in plan.intervals if iv.kind == "slack"]
 
     # 每个流向在一个周期内的总绿灯时长（可能由多个相位共同服务）
     green_totals = {mid: 0.0 for mid in movements}
@@ -566,26 +567,48 @@ def plot_movement_release_gantt(
         fig, ax = plt.subplots(figsize=figsize)
         ax.set_axisbelow(True)
 
-        # ---- 清空时间：浅灰竖带 + 顶部时长标注 ----
-        for iv in clearance_intervals:
-            ax.axvspan(iv.start, iv.end, facecolor="#D9D9D9", edgecolor="none",
-                       alpha=0.55, zorder=0)
-            ax.text(
-                (iv.start + iv.end) / 2.0,
-                n - 0.08,
-                f"{iv.duration:.0f}s",
-                ha="center",
-                va="bottom",
-                rotation=90,
-                fontsize=6.5,
-                color="#555555",
-                zorder=6,
-            )
-
-        # ---- 放行时段柱子 ----
+        # ---- 每个周期：清空时间、周期余量、放行柱子和周期边界 ----
         cycles = max(1, int(cycles))
         for k in range(cycles):
             offset = k * plan.cycle
+
+            # 清空时间：浅灰竖带 + 顶部时长标注
+            for iv in clearance_intervals:
+                start, end = offset + iv.start, offset + iv.end
+                ax.axvspan(start, end, facecolor="#D9D9D9", edgecolor="none",
+                           alpha=0.55, zorder=0)
+                ax.text(
+                    (start + end) / 2.0,
+                    n - 0.08,
+                    f"{iv.duration:.0f}s",
+                    ha="center",
+                    va="bottom",
+                    rotation=90,
+                    fontsize=6.5,
+                    color="#555555",
+                    zorder=6,
+                )
+
+            # 周期余量：浅色斜纹带 + 时长标注
+            for iv in slack_intervals:
+                start, end = offset + iv.start, offset + iv.end
+                ax.axvspan(start, end, facecolor="#F5F5F5",
+                           edgecolor="#BFBFBF", hatch="///",
+                           alpha=0.9, zorder=0)
+                if iv.duration > 0.03 * plan.cycle:
+                    ax.text(
+                        (start + end) / 2.0,
+                        n - 0.08,
+                        f"余量 {iv.duration:.1f}s",
+                        ha="center",
+                        va="bottom",
+                        rotation=90,
+                        fontsize=6.0,
+                        color="#666666",
+                        zorder=6,
+                    )
+
+            # 放行时段柱子
             for iv in plan.intervals:
                 if iv.kind != "green" or iv.phase is None:
                     continue
@@ -633,9 +656,8 @@ def plot_movement_release_gantt(
                             _add_duration_label(
                                 ax, hatch_start, end, ypos[mid], plan.cycle
                             )
-            if cycles > 1:
-                ax.axvline(offset + plan.cycle, color="#B22222",
-                           linestyle="--", linewidth=0.9, zorder=2)
+            ax.axvline(offset + plan.cycle, color="#B22222",
+                       linestyle="--", linewidth=0.9, zorder=2)
 
         # ---- 每个泳道的需求满足竖虚线 ----
         for mid in movements:
@@ -717,6 +739,8 @@ def plot_movement_release_gantt(
                   label="需求满足后：细密斜条纹"),
             Patch(facecolor="#D9D9D9", edgecolor="none", alpha=0.8,
                   label="清空/全红时间"),
+            Patch(facecolor="#F5F5F5", edgecolor="#BFBFBF", hatch="///",
+                  label="周期余量"),
             Line2D([0], [0], color="#444444", linestyle="--", linewidth=1.0,
                    marker="D", markersize=3.5, markerfacecolor="#444444",
                    markeredgecolor="white", label="需求满足时刻 $t_{sat}$"),

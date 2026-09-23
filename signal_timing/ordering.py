@@ -107,6 +107,7 @@ class OrderingPostProcessor:
         reference_order: Optional[Sequence[str]] = None,
         reference_mode: str = "prefer",
         reference_tolerance: float = 1e-3,
+        enforce_zero_slack: bool = False,
     ) -> Optional[OrderingResult]:
         """返回最优排序结果；所有合法排序都不可行时返回 None。
 
@@ -137,7 +138,12 @@ class OrderingPostProcessor:
             for order in self._reference_consistent_orders(selected_sorted, ref):
                 if order_filter is not None and not order_filter(order):
                     continue
-                res = self._solve_order(order, float(cycle_upper), cycle_fixed=cycle_fixed)
+                res = self._solve_order(
+                    order,
+                    float(cycle_upper),
+                    cycle_fixed=cycle_fixed,
+                    enforce_zero_slack=enforce_zero_slack,
+                )
                 if res is None:
                     continue
                 if best is None or res.objective < best.objective - 1e-12:
@@ -156,7 +162,12 @@ class OrderingPostProcessor:
             if order_filter is not None and not order_filter(order):
                 continue
             considered += 1
-            res = self._solve_order(order, float(cycle_upper), cycle_fixed=cycle_fixed)
+            res = self._solve_order(
+                order,
+                float(cycle_upper),
+                cycle_fixed=cycle_fixed,
+                enforce_zero_slack=enforce_zero_slack,
+            )
             if res is None:
                 continue
             feasible_count += 1
@@ -265,6 +276,7 @@ class OrderingPostProcessor:
         cycle_upper: float,
         *,
         cycle_fixed: bool,
+        enforce_zero_slack: bool = False,
     ) -> Optional[OrderingResult]:
         d = self.data
         registry = VarRegistry()
@@ -325,6 +337,21 @@ class OrderingPostProcessor:
                     coeffs=coeffs,
                     sense=">=",
                     rhs=0.0,
+                )
+            )
+
+        # 零余量：Σ g_p + clearance(order) = C
+        if enforce_zero_slack:
+            rows.append(
+                CompiledRow(
+                    name="zero_slack",
+                    coeffs={
+                        **{("g", pid): 1.0 for pid in order},
+                        ("C", ""): -1.0,
+                    },
+                    sense="==",
+                    rhs=-clearance,
+                    note="零余量约束：Σg + clearance = C",
                 )
             )
 

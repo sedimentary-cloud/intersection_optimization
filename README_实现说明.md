@@ -51,7 +51,7 @@ cd /mnt/e/PythonProjects/intersection_milp
 /home/qktx/artery_milp/conda-envs/artery_milp/bin/python -m unittest discover -s tests -t . -v
 ```
 
-当前测试共 **69** 个，覆盖：
+当前测试共 **71** 个，覆盖：
 
 - 数据层：覆盖性、正需求/正能力、未知流线、时间参数、lost_time 引用、严格清空时间、静态可行性预检；
 - 约束描述层：Trigger 三分类、ConstraintSpec 校验；
@@ -66,7 +66,9 @@ cd /mnt/e/PythonProjects/intersection_milp
   东西组（直行 → 搭接 → 左转）；
 - 分层参考顺序：支持“同层相位可互换”的全局参考顺序和 `hard`/`prefer`/`soft` 三种模式；
 - 额外绿灯规则：所有选中相位绿灯 ≥15s、`P5_N_THLT + P2_NS_LT ≥ 32s`，
-  以及 `P5_N_THLT - P2_NS_LT ≥ 5s` 非齐次约束（用于打破等比缩放）。
+  以及 `P5_N_THLT - P2_NS_LT ≥ 5s` 非齐次约束（用于打破等比缩放）；
+- 零余量配时：`enforce_zero_slack=True` 在第二阶段强制
+  `Σg_p + clearance(order) = C`。
 
 ## 4. 与设计文档的对应
 
