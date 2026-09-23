@@ -4,7 +4,13 @@
 顺序案例基础上，人为增加两条规则：
 
 1. 所有被选中相位绿灯 >= 15s；
-2. P5_N_THLT + P2_NS_LT >= 32s（两者都选中时生效）。
+2. P5_N_THLT + P2_NS_LT >= 32s（两者都选中时生效）；
+3. P5_N_THLT - P2_NS_LT >= 5s（非齐次约束，用于打破统一最小绿导致的等比缩放）。
+
+说明：
+- 如果只把 g_min 从 11 提高到 15，模型会倾向于把原最优解整体放大，
+  因为所有主要约束和服务目标关于 (g, C) 都是齐次的；
+- 额外加入 P5 - P2 >= 5 这类含绝对差值的约束后，结果不再等比放大。
 
 运行：
     /home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/four_approach_strict_green_case.py
@@ -34,10 +40,16 @@ def main() -> None:
 
     opt = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=60.0)
 
-    # 强制选中 P2_NS_LT，使 P5+P2 规则有意义。
+    # 强制选中 P2_NS_LT 和 P5_N_THLT，使两条规则都有意义。
     opt.add_constraint(ConstraintSpec(
         name="force_P2_NS_LT",
         coeffs={("y", "P2_NS_LT"): 1.0},
+        sense=">=",
+        rhs=1.0,
+    ))
+    opt.add_constraint(ConstraintSpec(
+        name="force_P5_N_THLT",
+        coeffs={("y", "P5_N_THLT"): 1.0},
         sense=">=",
         rhs=1.0,
     ))
@@ -48,6 +60,15 @@ def main() -> None:
         coeffs={("g", "P5_N_THLT"): 1.0, ("g", "P2_NS_LT"): 1.0},
         sense=">=",
         rhs=32.0,
+        trigger=Trigger.all_of("P5_N_THLT", "P2_NS_LT"),
+    ))
+
+    # 规则 3：P5_N_THLT - P2_NS_LT >= 5s，打破等比缩放。
+    opt.add_constraint(ConstraintSpec(
+        name="P5_minus_P2_ge_5",
+        coeffs={("g", "P5_N_THLT"): 1.0, ("g", "P2_NS_LT"): -1.0},
+        sense=">=",
+        rhs=5.0,
         trigger=Trigger.all_of("P5_N_THLT", "P2_NS_LT"),
     ))
 
@@ -75,8 +96,10 @@ def main() -> None:
     print("-" * 78)
     min_green = min(result.greens[p] for p in order)
     sum_p5_p2 = result.greens.get("P5_N_THLT", 0.0) + result.greens.get("P2_NS_LT", 0.0)
+    diff_p5_p2 = result.greens.get("P5_N_THLT", 0.0) - result.greens.get("P2_NS_LT", 0.0)
     print(f"最小选中绿灯 = {min_green:.3f} s  （规则要求 >= 15s）")
     print(f"P5_N_THLT + P2_NS_LT = {sum_p5_p2:.3f} s  （规则要求 >= 32s）")
+    print(f"P5_N_THLT - P2_NS_LT = {diff_p5_p2:.3f} s  （规则要求 >= 5s）")
     print("=" * 78)
 
     out_path = os.path.join(

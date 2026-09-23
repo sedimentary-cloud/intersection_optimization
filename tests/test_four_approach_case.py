@@ -150,10 +150,28 @@ class TestFourApproachOverlapCase(unittest.TestCase):
         )
         opt.add_constraint(
             ConstraintSpec(
+                name="force_P5_N_THLT",
+                coeffs={("y", "P5_N_THLT"): 1.0},
+                sense=">=",
+                rhs=1.0,
+            )
+        )
+        opt.add_constraint(
+            ConstraintSpec(
                 name="P5_plus_P2_min_32",
                 coeffs={("g", "P5_N_THLT"): 1.0, ("g", "P2_NS_LT"): 1.0},
                 sense=">=",
                 rhs=32.0,
+                trigger=Trigger.all_of("P5_N_THLT", "P2_NS_LT"),
+            )
+        )
+        # 非齐次约束：打破 g_min 统一提高导致的等比缩放
+        opt.add_constraint(
+            ConstraintSpec(
+                name="P5_minus_P2_ge_5",
+                coeffs={("g", "P5_N_THLT"): 1.0, ("g", "P2_NS_LT"): -1.0},
+                sense=">=",
+                rhs=5.0,
                 trigger=Trigger.all_of("P5_N_THLT", "P2_NS_LT"),
             )
         )
@@ -164,6 +182,10 @@ class TestFourApproachOverlapCase(unittest.TestCase):
         self.assertGreaterEqual(
             result.greens["P5_N_THLT"] + result.greens["P2_NS_LT"],
             32.0 - 1e-6,
+        )
+        self.assertGreaterEqual(
+            result.greens["P5_N_THLT"] - result.greens["P2_NS_LT"],
+            5.0 - 1e-6,
         )
 
     def test_ns_then_ew_reference_order(self):
