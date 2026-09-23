@@ -91,12 +91,16 @@ def solve_case(include_overlap: bool):
 
 
 def print_result(title, data, result):
+    if result.order is None:
+        raise RuntimeError("result.order 为 None；请确认 run_ordering=True")
+    order = list(result.order)
+
     print("=" * 78)
     print(title)
     print("=" * 78)
     print(f"最终周期 C = {result.cycle:.3f} s   （第一阶段保守 C* = {result.stage1_cycle:.3f} s）")
     print(f"选中相位   = {result.selected}")
-    print(f"相位顺序   = {' → '.join(result.order) if result.order else None}")
+    print(f"相位顺序   = {' → '.join(order)}")
     print(f"相位数     = {result.phase_count}")
     print(f"浪费服务   = {result.waste:.2f} veh/h·s")
     print(f"后验校验   = {'通过' if result.verification.get('passed') else '失败'}")
@@ -112,7 +116,7 @@ def print_result(title, data, result):
         provided = (
             sum(
                 data.phases[p].capacity.get(mid, 0.0) * result.greens[p]
-                for p in result.order
+                for p in order
             )
             / 3600.0
         )
