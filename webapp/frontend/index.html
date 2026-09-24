@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>信号配时优化工具 · Web 可视化</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="/assets/echarts.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">ST</span>
+      <div>
+        <h1>信号配时优化工具</h1>
+        <p>非侵入式 Web 可视化 · FastAPI + signal_timing</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span id="health-badge" class="badge badge-muted">检查服务中…</span>
+      <select id="plan-select" title="选择已保存方案">
+        <option value="">— 选择方案 —</option>
+      </select>
+      <button id="btn-save-plan" class="btn btn-ghost">保存方案</button>
+      <button id="btn-delete-plan" class="btn btn-ghost danger">删除方案</button>
+      <button id="btn-load-example" class="btn btn-ghost">载入示例</button>
+      <button id="btn-export" class="btn btn-ghost">导出 JSON</button>
+      <label class="btn btn-ghost file-label">
+        导入 JSON
+        <input id="import-file" type="file" accept="application/json" hidden />
+      </label>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- 左栏：导航 + 方案数据 -->
+    <aside class="panel left-panel">
+      <div class="panel-title">工作区</div>
+      <nav class="view-nav">
+        <button data-view="topology" class="active">路口拓扑</button>
+        <button data-view="tables">数据表格</button>
+      </nav>
+
+      <div class="section">
+        <div class="section-head">
+          <span>相位</span>
+          <button id="btn-add-phase" class="mini-btn">+ 相位</button>
+        </div>
+        <div id="phase-list" class="list"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <span>约束</span>
+          <button id="btn-new-constraint" class="mini-btn">+ 新建</button>
+        </div>
+        <div id="constraint-list" class="list"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><span>任务</span></div>
+        <div id="task-mini" class="task-mini">
+          <div id="task-mini-status">暂无求解任务</div>
+          <div class="progress"><div id="task-mini-progress" class="progress-bar"></div></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中栏：拓扑 / 表格 -->
+    <section class="panel center-panel">
+      <div id="topology-view" class="view active">
+        <div class="center-head">
+          <div>
+            <h2>路口拓扑编辑器</h2>
+            <p class="muted">点击车道编辑需求；选中相位会高亮其服务的流向。</p>
+          </div>
+          <div class="topology-actions">
+            <div id="topology-legend" class="legend"></div>
+            <button id="btn-add-movement-topology" class="btn btn-secondary">+ 添加流向</button>
+          </div>
+        </div>
+        <div id="topology-svg-wrap" class="topology-svg-wrap"></div>
+      </div>
+
+      <div id="tables-view" class="view">
+        <div class="center-head">
+          <div>
+            <h2>数据表格视图</h2>
+            <p class="muted">输入即写入 state；业务校验由后端 <code>/api/validate</code> 统一负责。</p>
+          </div>
+          <button id="btn-add-movement" class="btn btn-secondary">+ 流向</button>
+        </div>
+        <div id="tables-body"></div>
+      </div>
+    </section>
+
+    <!-- 右栏：属性、约束、求解控制台、审计 -->
+    <aside class="panel right-panel">
+      <div id="property-panel" class="section">
+        <div class="section-head"><span>属性</span></div>
+        <div class="hint">选择拓扑中的车道或表格中的行以编辑。</div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <span>约束编辑器</span>
+          <button id="btn-reset-constraint" class="mini-btn">重置</button>
+        </div>
+        <div id="constraint-editor"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><span>求解控制台</span></div>
+        <div id="solver-editor"></div>
+        <div class="button-row">
+          <button id="btn-validate" class="btn btn-secondary">校验</button>
+          <button id="btn-solve" class="btn btn-primary">提交求解</button>
+          <button id="btn-cancel" class="btn btn-ghost danger" disabled>取消</button>
+        </div>
+        <div id="solve-status" class="solve-status">尚未提交任务</div>
+        <div class="progress large"><div id="solve-progress" class="progress-bar indeterminate"></div></div>
+        <details class="logs">
+          <summary>求解日志</summary>
+          <pre id="task-logs">—</pre>
+        </details>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><span>审计面板</span></div>
+        <div id="audit-panel" class="hint">约束保存/点击“审计”后显示子集语义审计。</div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- 底栏：结果可视化 -->
+  <section class="panel bottom-panel">
+    <div class="result-head">
+      <div>
+        <h2>结果可视化</h2>
+        <p id="result-summary" class="muted">求解成功后在此查看配时、饱和度与字典序轨迹。</p>
+      </div>
+      <div class="result-head-actions">
+        <div id="result-status" class="badge badge-muted">暂无结果</div>
+        <button id="btn-toggle-results" class="mini-btn" title="展开/折叠结果面板">折叠结果</button>
+      </div>
+    </div>
+    <div class="result-tabs">
+      <button data-tab="timing" class="active">配时图</button>
+      <button data-tab="order">相位顺序</button>
+      <button data-tab="saturation">车道饱和度</button>
+      <button data-tab="sigma">软约束</button>
+      <button data-tab="rounds">各轮轨迹</button>
+      <button data-tab="compare">排序对比</button>
+    </div>
+    <div id="result-body" class="result-body">
+      <div class="empty-state">提交求解任务后，结果将在这里渲染。</div>
+    </div>
+  </section>
+
+  <div id="movement-modal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h3>添加流向</h3>
+        <button id="btn-close-movement-modal" class="mini-btn" type="button">×</button>
+      </div>
+      <div class="form-grid">
+        <label>进口方向
+          <select id="movement-direction">
+            <option value="N">北 N</option>
+            <option value="S">南 S</option>
+            <option value="E">东 E</option>
+            <option value="W">西 W</option>
+          </select>
+        </label>
+        <label>流向类型
+          <select id="movement-type">
+            <option value="left">左转 left</option>
+            <option value="through">直行 through/thr</option>
+          </select>
+        </label>
+        <label>流向 id<input id="movement-id" /></label>
+        <label>需求 (veh/h)<input id="movement-demand" type="number" min="0.001" step="1" value="300" /></label>
+        <label>初始服务相位<select id="movement-phase"></select></label>
+      </div>
+      <div class="hint">新流向会加入当前路口。选择一个初始服务相位后，会自动填入 1800 veh/h 的服务能力，可在“相位-流向服务能力矩阵”中修改。</div>
+      <div class="button-row">
+        <button id="btn-confirm-movement" class="btn btn-primary" type="button">添加流向</button>
+        <button id="btn-cancel-movement" class="btn btn-secondary" type="button">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+# 信号配时 Web 可视化层依赖（Python 侧）
+# 使用配套 conda artery_milp 环境安装：
+#   /home/qktx/artery_milp/conda-envs/artery_milp/bin/python -m pip install -r webapp/requirements-web.txt
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+httpx>=0.27,<1

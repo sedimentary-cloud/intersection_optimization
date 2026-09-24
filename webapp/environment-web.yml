@@ -1,0 +1,13 @@
+# 可选的 conda 环境定义。若沿用已有的 artery_milp 环境，只需安装 pip 依赖：
+#   conda run -p /home/qktx/artery_milp/conda-envs/artery_milp \
+#       python -m pip install -r webapp/requirements-web.txt
+name: artery_milp
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - fastapi>=0.115,<1
+      - uvicorn>=0.30,<1
+      - httpx>=0.27,<1
