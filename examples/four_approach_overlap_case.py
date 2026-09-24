@@ -9,7 +9,7 @@
     P4_EW_LT : 东西左转对称放行
     P5_N_THLT: 北进口直行 + 左转搭接（单进口同时放行直行与左转）
     P6_S_THLT: 南进口直行 + 左转搭接
-- 北进口需求不均衡：直行 600 veh/h，左转 250 veh/h；
+- 北进口需求不均衡：直行 650 veh/h，左转 240 veh/h；
 - 所有被选相位最小绿灯 11 s（> 10 s）。
 - 目标：字典序最小化周期（第一目标）。
 
@@ -36,135 +36,229 @@ from signal_timing.plotting import (
 )
 
 
-def build_data(include_overlap: bool = True) -> IntersectionData:
-    """构造 4 进口 x 2 流向案例；include_overlap=False 时只保留 4 个对称相位。"""
-    demands = {
+def build_intersection_data(
+    include_overlap_phases: bool = True,
+) -> IntersectionData:
+    """构造 4 进口 x 2 流向案例。
+
+    include_overlap_phases=False 时只保留 4 个对称相位。
+    """
+    movement_demands = {
         "N_left": 240.0, "N_thr": 650.0,   # 北进口直行/左转不均衡
         "S_left": 170.0, "S_thr": 430.0,
         "E_left": 150.0, "E_thr": 470.0,   # 东进口直行偏大、左转偏小
         "W_left": 110.0, "W_thr": 350.0,   # 西进口整体需求较低
     }
-    movements = {mid: Movement(mid, q) for mid, q in demands.items()}
-    c_thr, c_left = 1800.0, 1500.0  # 直行/左转饱和流率 veh/h
-
-    phases = {
-        "P1_NS_TH": Phase("P1_NS_TH", {"N_thr": c_thr, "S_thr": c_thr}),
-        "P2_NS_LT": Phase("P2_NS_LT", {"N_left": c_left, "S_left": c_left}),
-        "P3_EW_TH": Phase("P3_EW_TH", {"E_thr": c_thr, "W_thr": c_thr}),
-        "P4_EW_LT": Phase("P4_EW_LT", {"E_left": c_left, "W_left": c_left}),
+    movements_by_id = {
+        movement_id: Movement(movement_id, demand)
+        for movement_id, demand in movement_demands.items()
     }
-    if include_overlap:
-        phases["P5_N_THLT"] = Phase(
-            "P5_N_THLT", {"N_thr": c_thr, "N_left": c_left}
+
+    through_saturation_flow = 1800.0   # 直行饱和流率 veh/h
+    left_turn_saturation_flow = 1500.0  # 左转饱和流率 veh/h
+
+    candidate_phases = {
+        "P1_NS_TH": Phase(
+            "P1_NS_TH",
+            {"N_thr": through_saturation_flow, "S_thr": through_saturation_flow},
+        ),
+        "P2_NS_LT": Phase(
+            "P2_NS_LT",
+            {"N_left": left_turn_saturation_flow, "S_left": left_turn_saturation_flow},
+        ),
+        "P3_EW_TH": Phase(
+            "P3_EW_TH",
+            {"E_thr": through_saturation_flow, "W_thr": through_saturation_flow},
+        ),
+        "P4_EW_LT": Phase(
+            "P4_EW_LT",
+            {"E_left": left_turn_saturation_flow, "W_left": left_turn_saturation_flow},
+        ),
+    }
+
+    if include_overlap_phases:
+        candidate_phases["P5_N_THLT"] = Phase(
+            "P5_N_THLT",
+            {"N_thr": through_saturation_flow, "N_left": left_turn_saturation_flow},
         )
-        phases["P6_S_THLT"] = Phase(
-            "P6_S_THLT", {"S_thr": c_thr, "S_left": c_left}
+        candidate_phases["P6_S_THLT"] = Phase(
+            "P6_S_THLT",
+            {"S_thr": through_saturation_flow, "S_left": left_turn_saturation_flow},
         )
 
     # 同组相位间清空 3s，跨组 5s；所有有序对都定义，满足严格清空时间模式。
-    groups = {
+    phase_direction_groups = {
         "P1_NS_TH": "NS", "P2_NS_LT": "NS",
         "P5_N_THLT": "NS", "P6_S_THLT": "NS",
         "P3_EW_TH": "EW", "P4_EW_LT": "EW",
     }
-    lost = {}
-    for i in phases:
-        for j in phases:
-            if i != j:
-                lost[(i, j)] = 3.0 if groups[i] == groups[j] else 5.0
+    clearance_times = {}
+    for from_phase_id in candidate_phases:
+        for to_phase_id in candidate_phases:
+            if from_phase_id == to_phase_id:
+                continue
+            same_direction_group = (
+                phase_direction_groups[from_phase_id]
+                == phase_direction_groups[to_phase_id]
+            )
+            clearance_times[(from_phase_id, to_phase_id)] = (
+                3.0 if same_direction_group else 5.0
+            )
 
     return IntersectionData(
-        movements=movements,
-        phases=phases,
-        lost_time=lost,
+        movements=movements_by_id,
+        phases=candidate_phases,
+        lost_time=clearance_times,
         g_min=11.0,
         c_min=40.0,
         c_max=180.0,
     )
 
 
-def solve_case(include_overlap: bool):
-    data = build_data(include_overlap=include_overlap)
-    opt = LexicographicOptimizer(data, mip_rel_gap=0.001, time_limit=60.0)
-    result = opt.solve(allow_cycle_reduction=True)
-    return data, result
+def solve_intersection_case(include_overlap_phases: bool):
+    """构造并求解一个案例，返回 (intersection_data, optimization_result)。"""
+    intersection_data = build_intersection_data(
+        include_overlap_phases=include_overlap_phases
+    )
+    optimizer = LexicographicOptimizer(
+        intersection_data,
+        mip_rel_gap=0.001,
+        time_limit=60.0,
+    )
+    optimization_result = optimizer.solve(allow_cycle_reduction=True)
+    return intersection_data, optimization_result
 
 
-def print_result(title, data, result):
-    if result.order is None:
-        raise RuntimeError("result.order 为 None；请确认 run_ordering=True")
-    order = list(result.order)
+def print_optimization_result(
+    case_title: str,
+    intersection_data: IntersectionData,
+    optimization_result,
+) -> None:
+    """打印某个方案的关键结果和逐流向需求满足情况。"""
+    if optimization_result.order is None:
+        raise RuntimeError("optimization_result.order 为 None；请确认 run_ordering=True")
+    phase_order = list(optimization_result.order)
 
     print("=" * 78)
-    print(title)
+    print(case_title)
     print("=" * 78)
-    print(f"最终周期 C = {result.cycle:.3f} s   （第一阶段保守 C* = {result.stage1_cycle:.3f} s）")
-    print(f"选中相位   = {result.selected}")
-    print(f"相位顺序   = {' → '.join(order)}")
-    print(f"相位数     = {result.phase_count}")
-    print(f"浪费服务   = {result.waste:.2f} veh/h·s")
-    print(f"后验校验   = {'通过' if result.verification.get('passed') else '失败'}")
+    print(
+        f"最终周期 C = {optimization_result.cycle:.3f} s   "
+        f"（第一阶段保守 C* = {optimization_result.stage1_cycle:.3f} s）"
+    )
+    print(f"选中相位   = {optimization_result.selected}")
+    print(f"相位顺序   = {' → '.join(phase_order)}")
+    print(f"相位数     = {optimization_result.phase_count}")
+    print(f"浪费服务   = {optimization_result.waste:.2f} veh/h·s")
+    print(
+        f"后验校验   = "
+        f"{'通过' if optimization_result.verification.get('passed') else '失败'}"
+    )
     print("-" * 78)
     print(f"{'相位':<12s} {'绿灯(s)':>10s} {'服务流向':<28s}")
-    for p in result.selected:
-        served = ", ".join(data.phases[p].capacity.keys())
-        print(f"{p:<12s} {result.greens[p]:>10.2f} {served:<28s}")
+    for phase_id in optimization_result.selected:
+        served_movement_ids = ", ".join(
+            intersection_data.phases[phase_id].capacity.keys()
+        )
+        print(
+            f"{phase_id:<12s} "
+            f"{optimization_result.greens[phase_id]:>10.2f} "
+            f"{served_movement_ids:<28s}"
+        )
     print("-" * 78)
-    print(f"{'流向':<10s} {'需求(veh)':>12s} {'提供(veh)':>12s} {'余量(veh)':>12s} {'状态':>6s}")
-    for mid in data.movements:
-        demand = data.movements[mid].demand * result.cycle / 3600.0
-        provided = (
+    print(
+        f"{'流向':<10s} {'需求(veh)':>12s} {'提供(veh)':>12s} "
+        f"{'余量(veh)':>12s} {'状态':>6s}"
+    )
+    for movement_id in intersection_data.movements:
+        cycle_demand_veh = (
+            intersection_data.movements[movement_id].demand
+            * optimization_result.cycle
+            / 3600.0
+        )
+        provided_service_veh = (
             sum(
-                data.phases[p].capacity.get(mid, 0.0) * result.greens[p]
-                for p in order
+                intersection_data.phases[phase_id].capacity.get(movement_id, 0.0)
+                * optimization_result.greens[phase_id]
+                for phase_id in phase_order
             )
             / 3600.0
         )
-        margin = provided - demand
+        demand_margin_veh = provided_service_veh - cycle_demand_veh
+        demand_satisfied = demand_margin_veh >= -1e-6
         print(
-            f"{mid:<10s} {demand:>12.3f} {provided:>12.3f} {margin:>+12.3f} "
-            f"{'满足' if margin >= -1e-6 else '不足':>6s}"
+            f"{movement_id:<10s} {cycle_demand_veh:>12.3f} "
+            f"{provided_service_veh:>12.3f} {demand_margin_veh:>+12.3f} "
+            f"{'满足' if demand_satisfied else '不足':>6s}"
         )
     print("=" * 78)
     print()
 
 
-def main():
+def main() -> None:
     warnings.simplefilter("ignore")
 
-    data_with, result_with = solve_case(include_overlap=True)
-    data_sym, result_sym = solve_case(include_overlap=False)
-
-    print_result("方案 A：4 个对称相位 + 2 个南北直行左转搭接相位", data_with, result_with)
-    print_result("方案 B：对照组，仅 4 个对称相位", data_sym, result_sym)
-
-    cycle_gap = result_sym.cycle - result_with.cycle
-    print(
-        f"对照结论：加入南北直行左转搭接相位后，周期从 "
-        f"{result_sym.cycle:.2f}s 降至 {result_with.cycle:.2f}s，"
-        f"降幅 {cycle_gap:.2f}s（{cycle_gap / result_sym.cycle * 100:.1f}%）。"
+    data_with_overlap, result_with_overlap = solve_intersection_case(
+        include_overlap_phases=True
+    )
+    data_symmetric_only, result_symmetric_only = solve_intersection_case(
+        include_overlap_phases=False
     )
 
-    sat_times = compute_satisfaction_times(data_with, result_with)
+    print_optimization_result(
+        "方案 A：4 个对称相位 + 2 个南北直行左转搭接相位",
+        data_with_overlap,
+        result_with_overlap,
+    )
+    print_optimization_result(
+        "方案 B：对照组，仅 4 个对称相位",
+        data_symmetric_only,
+        result_symmetric_only,
+    )
+
+    cycle_reduction_seconds = (
+        result_symmetric_only.cycle - result_with_overlap.cycle
+    )
+    cycle_reduction_percent = (
+        cycle_reduction_seconds / result_symmetric_only.cycle * 100.0
+    )
+    print(
+        f"对照结论：加入南北直行左转搭接相位后，周期从 "
+        f"{result_symmetric_only.cycle:.2f}s 降至 "
+        f"{result_with_overlap.cycle:.2f}s，"
+        f"降幅 {cycle_reduction_seconds:.2f}s"
+        f"（{cycle_reduction_percent:.1f}%）。"
+    )
+
+    movement_satisfaction_times = compute_satisfaction_times(
+        data_with_overlap,
+        result_with_overlap,
+    )
     print("各进口-流向需求满足时刻：")
-    for mid, t_sat in sat_times.items():
-        print(f"  {mid:8s} t_sat = {t_sat:.2f} s" if t_sat is not None else f"  {mid:8s} 未满足")
+    for movement_id, satisfaction_time_seconds in movement_satisfaction_times.items():
+        if satisfaction_time_seconds is None:
+            print(f"  {movement_id:8s} 未满足")
+        else:
+            print(
+                f"  {movement_id:8s} "
+                f"t_sat = {satisfaction_time_seconds:.2f} s"
+            )
     print()
 
-    out_path = os.path.join(
+    gantt_output_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "output",
         "four_approach_movement_gantt.png",
     )
     plot_movement_release_gantt(
-        data_with,
-        result_with,
+        data_with_overlap,
+        result_with_overlap,
         cycles=1,
-        save_path=out_path,
+        save_path=gantt_output_path,
         show=False,
         title="4 进口 x 2 流向：含南北直行左转搭接相位的优化方案",
     )
-    print(f"新版流向甘特图已保存：{out_path}")
+    print(f"新版流向甘特图已保存：{gantt_output_path}")
 
 
 if __name__ == "__main__":
