@@ -14,7 +14,7 @@
 - 目标：字典序最小化周期（第一目标）。
 
 运行：
-    /home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/four_approach_overlap_case.py
+    conda run -n artery_milp python examples/four_approach_overlap_case.py
 """
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 """绘制信号配时甘特图 + 需求满足情况。
 
 运行：
-    /home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/plot_signal_gantt.py
+    conda run -n artery_milp python examples/plot_signal_gantt.py
 输出：
     examples/output/signal_timing_gantt.png
 """

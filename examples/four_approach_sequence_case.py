@@ -18,7 +18,7 @@
   额外加一条硬约束 ``y(P2_NS_LT) >= 1`` 强制选中 P2。
 
 运行：
-    /home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/four_approach_sequence_case.py
+    conda run -n artery_milp python examples/four_approach_sequence_case.py
 """
 from __future__ import annotations
 

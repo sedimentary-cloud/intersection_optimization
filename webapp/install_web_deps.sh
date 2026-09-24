@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# 使用配套 conda artery_milp 环境安装 Web 依赖。
-# 如果环境 site-packages 不可写（例如只读挂载），自动回退到项目本地 .webdeps。
+# 使用 artery_milp conda 环境安装 Web 依赖。
+# 如果当前环境 site-packages 不可写（例如只读挂载），自动回退到项目本地 .webdeps。
 set -euo pipefail
 
-ENV_PY="${ARTERY_MILP_PY:-/home/qktx/artery_milp/conda-envs/artery_milp/bin/python}"
+if [[ -n "${ARTERY_MILP_PY:-}" ]]; then
+  ENV_PY="${ARTERY_MILP_PY}"
+elif [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+  ENV_PY="${CONDA_PREFIX}/bin/python"
+else
+  ENV_PY="$(command -v python3 || command -v python)"
+fi
+
 WEBAPP_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${WEBAPP_DIR}/../.." && pwd)"
 TARGET="${WEB_DEPS_TARGET:-${PROJECT_ROOT}/.webdeps}"

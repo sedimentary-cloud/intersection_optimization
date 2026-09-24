@@ -37,25 +37,27 @@ webapp/
 
 ## 安装依赖
 
-优先使用文档指定的 conda 环境：
+先激活 `artery_milp` conda 环境，再安装 Web 依赖：
 
 ```bash
-cd /mnt/e/PythonProjects/intersection_milp/intersection_milp
-ARTERY_MILP_PY=/home/qktx/artery_milp/conda-envs/artery_milp/bin/python \
-  bash webapp/install_web_deps.sh
+cd "$(git rev-parse --show-toplevel)"
+conda activate artery_milp
+bash webapp/install_web_deps.sh
 ```
 
-若该环境 site-packages 只读，上面的脚本会回退到项目本地
-`/mnt/e/PythonProjects/intersection_milp/.webdeps`；`webapp/run_web.py`
-启动时会自动把该目录加入 `sys.path`。
+如果当前环境不可写，脚本会自动回退到仓库上一级目录的 `.webdeps`；`webapp/run_web.py`
+启动时会自动把该目录加入 `sys.path`。也可以通过环境变量显式指定 Python：
+
+```bash
+ARTERY_MILP_PY=/path/to/artery_milp/bin/python bash webapp/install_web_deps.sh
+```
 
 ## 启动
 
 ```bash
-cd /mnt/e/PythonProjects/intersection_milp/intersection_milp
-PYTHONPATH=/mnt/e/PythonProjects/intersection_milp/.webdeps:. \
-  /home/qktx/artery_milp/conda-envs/artery_milp/bin/python \
-  -m webapp.run_web --host 127.0.0.1 --port 8000
+cd "$(git rev-parse --show-toplevel)"
+conda activate artery_milp
+python -m webapp.run_web --host 127.0.0.1 --port 8000
 ```
 
 浏览器打开 <http://127.0.0.1:8000/>。
@@ -66,10 +68,16 @@ PYTHONPATH=/mnt/e/PythonProjects/intersection_milp/.webdeps:. \
 ## 测试
 
 ```bash
-cd /mnt/e/PythonProjects/intersection_milp/intersection_milp
-PYTHONPATH=/mnt/e/PythonProjects/intersection_milp/.webdeps:. \
-  /home/qktx/artery_milp/conda-envs/artery_milp/bin/python \
-  -m unittest discover -s webapp/tests -t . -v
+cd "$(git rev-parse --show-toplevel)"
+conda activate artery_milp
+python -m unittest discover -s webapp/tests -t . -v
+```
+
+如果依赖安装在仓库上一级目录的 `.webdeps` 中，测试时可加上：
+
+```bash
+PYTHONPATH="$(dirname "$(git rev-parse --show-toplevel)")/.webdeps:." \
+  python -m unittest discover -s webapp/tests -t . -v
 ```
 
 API 一览与设计文档 §4 对齐：

@@ -1,7 +1,7 @@
 """框架使用示例。
 
 运行：
-    /home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/demo_signal_timing.py
+    conda run -n artery_milp python examples/demo_signal_timing.py
 """
 from __future__ import annotations
 

@@ -13,7 +13,7 @@
 - 额外加入 P5 - P2 >= 5 这类含绝对差值的约束后，结果不再等比放大。
 
 运行：
-    /home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/four_approach_strict_green_case.py
+    conda run -n artery_milp python examples/four_approach_strict_green_case.py
 """
 from __future__ import annotations
 

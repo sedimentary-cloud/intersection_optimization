@@ -2,7 +2,7 @@
 
 用法::
 
-    /home/qktx/artery_milp/conda-envs/artery_milp/bin/python -m webapp.run_web --port 8000
+    python -m webapp.run_web --port 8000
 
 脚本会优先把项目根目录与项目本地依赖目录 ``.webdeps`` 加入 ``sys.path``，
 因此在 conda 环境 site-packages 不可写时也能使用 ``pip --target`` 安装的依赖。
@@ -38,10 +38,10 @@ def main() -> None:
         import uvicorn
     except ImportError as exc:  # pragma: no cover - 环境缺失提示
         raise SystemExit(
-            "缺少 Web 依赖。请使用 conda artery_milp 环境执行：\n"
-            "  /home/qktx/artery_milp/conda-envs/artery_milp/bin/python -m pip "
+            "缺少 Web 依赖。请先激活 artery_milp 环境，然后执行：\n"
+            "  python -m pip "
             "install -r webapp/requirements-web.txt\n"
-            "若 site-packages 不可写，可加 --target ../.webdeps，然后重新运行本脚本。"
+            "若 site-packages 不可写，可使用项目本地依赖目录 ``.webdeps``，然后重新运行本脚本。"
         ) from exc
 
     uvicorn.run(

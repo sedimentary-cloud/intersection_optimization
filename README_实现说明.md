@@ -8,17 +8,11 @@
 
 ## 1. 环境检查
 
-系统里存在与 `artery_milp` 项目配套的 conda 环境：
-
-| 路径 | 状态 |
-|---|---|
-| `/home/qktx/artery_milp/conda-envs/artery_milp` | **Linux/WSL 可执行环境**：Python 3.11.16、scipy 1.17.1、numpy 2.4.6，`scipy.optimize.milp` 可用 |
-| `/mnt/e/PythonProjects/artery_milp/conda-envs/artery_milp` | Windows 侧环境目录；在 WSL 下没有可直接调用的 `bin/python`，不作为运行环境 |
-
-运行代码/测试请使用：
+推荐使用 `artery_milp` conda 环境（Python 3.11、scipy、numpy，`scipy.optimize.milp` 可用）。
 
 ```bash
-/home/qktx/artery_milp/conda-envs/artery_milp/bin/python
+conda activate artery_milp
+python -c "import scipy; from scipy.optimize import milp; print(scipy.__version__, 'milp ok')"
 ```
 
 ## 2. 文件结构
@@ -47,8 +41,8 @@ examples/four_approach_strict_green_case.py  额外绿灯规则案例
 ## 3. 运行测试
 
 ```bash
-cd /mnt/e/PythonProjects/intersection_milp
-/home/qktx/artery_milp/conda-envs/artery_milp/bin/python -m unittest discover -s tests -t . -v
+cd "$(git rev-parse --show-toplevel)"
+conda run -n artery_milp python -m unittest discover -s tests -t . -v
 ```
 
 当前测试共 **71** 个，覆盖：
@@ -171,8 +165,8 @@ fig = plot_signal_timing_gantt(
 示例：
 
 ```bash
-cd /mnt/e/PythonProjects/intersection_milp
-/home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/plot_signal_gantt.py
+cd "$(git rev-parse --show-toplevel)"
+conda run -n artery_milp python examples/plot_signal_gantt.py
 # 输出 examples/output/signal_timing_gantt.png
 ```
 
@@ -182,8 +176,8 @@ cd /mnt/e/PythonProjects/intersection_milp
 运行：
 
 ```bash
-cd /mnt/e/PythonProjects/intersection_milp
-/home/qktx/artery_milp/conda-envs/artery_milp/bin/python examples/four_approach_overlap_case.py
+cd "$(git rev-parse --show-toplevel)"
+conda run -n artery_milp python examples/four_approach_overlap_case.py
 ```
 
 场景：
