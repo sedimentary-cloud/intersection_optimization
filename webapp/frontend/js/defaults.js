@@ -53,6 +53,7 @@ export function buildDefaultSolver() {
     run_ordering: true,
     allow_cycle_reduction: true,
     enforce_zero_slack: false,
+    stage2_mode: 'min_waste',
     disp: false,
     max_fallback: 20,
   };

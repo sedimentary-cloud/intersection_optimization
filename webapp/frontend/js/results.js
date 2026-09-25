@@ -45,6 +45,7 @@ function resultCards(result) {
       <div class="result-card"><div class="k">选中相位数</div><div class="v">${phaseCount}</div></div>
       <div class="result-card"><div class="k">浪费服务</div><div class="v">${fmt(result.waste, 1)}</div></div>
       <div class="result-card"><div class="k">周期余量</div><div class="v ${slackClass}">${fmt(slack)} s</div></div>
+      <div class="result-card"><div class="k">最紧张流向裕量</div><div class="v ${Number(result.min_margin) >= 0 ? 'good' : 'bad'}">${result.min_margin == null ? '—' : fmt(result.min_margin, 1)}</div></div>
       <div class="result-card"><div class="k">第一阶段周期</div><div class="v">${fmt(result.stage1_cycle)} s</div></div>
       <div class="result-card"><div class="k">no-good 回退</div><div class="v ${result.fallback_cuts > 0 ? 'warn' : ''}">${result.fallback_cuts}</div></div>
     </div>`;

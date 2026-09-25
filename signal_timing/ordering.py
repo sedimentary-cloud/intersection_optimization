@@ -74,6 +74,7 @@ class OrderingResult:
     sigmas: Dict[str, float] = field(default_factory=dict)
     status: str = "optimal"
     message: str = ""
+    min_margin: Optional[float] = None
     #: 内部使用：完整变量取值，用于后验校验
     values: Optional[Dict[VarKey, float]] = None
 
@@ -108,6 +109,7 @@ class OrderingPostProcessor:
         reference_mode: str = "prefer",
         reference_tolerance: float = 1e-3,
         enforce_zero_slack: bool = False,
+        stage2_mode: str = "min_waste",
     ) -> Optional[OrderingResult]:
         """返回最优排序结果；所有合法排序都不可行时返回 None。
 
@@ -119,6 +121,10 @@ class OrderingPostProcessor:
         if reference_mode not in ("none", "prefer", "soft", "hard"):
             raise OrderingError(
                 "reference_mode 必须是 'none' / 'prefer' / 'soft' / 'hard'"
+            )
+        if stage2_mode not in ("min_waste", "max_min_margin", "min_cycle"):
+            raise OrderingError(
+                "stage2_mode 必须是 'min_waste' / 'max_min_margin' / 'min_cycle'"
             )
         selected = list(dict.fromkeys(selected))
         if not selected:
@@ -143,6 +149,7 @@ class OrderingPostProcessor:
                     float(cycle_upper),
                     cycle_fixed=cycle_fixed,
                     enforce_zero_slack=enforce_zero_slack,
+                    stage2_mode=stage2_mode,
                 )
                 if res is None:
                     continue
@@ -167,6 +174,7 @@ class OrderingPostProcessor:
                 float(cycle_upper),
                 cycle_fixed=cycle_fixed,
                 enforce_zero_slack=enforce_zero_slack,
+                stage2_mode=stage2_mode,
             )
             if res is None:
                 continue
@@ -277,7 +285,12 @@ class OrderingPostProcessor:
         *,
         cycle_fixed: bool,
         enforce_zero_slack: bool = False,
+        stage2_mode: str = "min_waste",
     ) -> Optional[OrderingResult]:
+        if stage2_mode not in ("min_waste", "max_min_margin", "min_cycle"):
+            raise OrderingError(
+                "stage2_mode 必须是 'min_waste' / 'max_min_margin' / 'min_cycle'"
+            )
         d = self.data
         registry = VarRegistry()
         for pid in order:
@@ -286,6 +299,14 @@ class OrderingPostProcessor:
             registry.register(("C", ""), cycle_upper, cycle_upper, integrality=0, kind="C")
         else:
             registry.register(("C", ""), d.c_min, cycle_upper, integrality=0, kind="C")
+        z_key: Optional[VarKey] = None
+        if stage2_mode == "max_min_margin":
+            capacities = [d.max_capacity(mid) for mid in d.movement_ids]
+            z_ub = max(capacities, default=0.0) * d.c_max
+            if z_ub <= 0.0:
+                z_ub = d.c_max
+            z_key = ("z", "")
+            registry.register(z_key, 0.0, z_ub, integrality=0, kind="z")
 
         # 固定 y 以及未选中相位的 g=0
         fixed_values: Dict[VarKey, float] = {}
@@ -340,6 +361,27 @@ class OrderingPostProcessor:
                 )
             )
 
+        # max-min margin：每个流向的裕量都不低于 z
+        if stage2_mode == "max_min_margin" and z_key is not None:
+            for mid, mov in d.movements.items():
+                margin_coeffs: Dict[VarKey, float] = {
+                    z_key: -1.0,
+                    ("C", ""): -mov.demand,
+                }
+                for pid in order:
+                    a = d.phases[pid].capacity.get(mid, 0.0)
+                    if a > 0.0:
+                        margin_coeffs[("g", pid)] = a
+                rows.append(
+                    CompiledRow(
+                        name=f"margin[{mid}]",
+                        coeffs=margin_coeffs,
+                        sense=">=",
+                        rhs=0.0,
+                        note="最紧张流向裕量约束",
+                    )
+                )
+
         # 零余量：Σ g_p + clearance(order) = C
         if enforce_zero_slack:
             rows.append(
@@ -355,11 +397,16 @@ class OrderingPostProcessor:
                 )
             )
 
-        # 目标：min 浪费 + 软约束惩罚
+        # 目标：min 浪费 / max 最紧张流向裕量 / min 周期 + 软约束惩罚
         objective: Dict[VarKey, float] = {}
-        for pid in order:
-            objective[("g", pid)] = sum(d.phases[pid].capacity.values())
-        objective[("C", "")] = -sum(mov.demand for mov in d.movements.values())
+        if stage2_mode == "max_min_margin" and z_key is not None:
+            objective[z_key] = -1.0
+        elif stage2_mode == "min_cycle":
+            objective[("C", "")] = 1.0
+        else:
+            for pid in order:
+                objective[("g", pid)] = sum(d.phases[pid].capacity.values())
+            objective[("C", "")] = -sum(mov.demand for mov in d.movements.values())
         for slack in slack_specs:
             objective[slack.key] = objective.get(slack.key, 0.0) + slack.penalty
 
@@ -369,6 +416,7 @@ class OrderingPostProcessor:
             objective,
             slack_specs,
             order=list(order),
+            stage2_mode=stage2_mode,
         )
 
     # ------------------------------------------------------------------ #
@@ -382,6 +430,7 @@ class OrderingPostProcessor:
         slack_specs: Sequence[SlackSpec],
         *,
         order: List[str],
+        stage2_mode: str = "min_waste",
     ) -> Optional[OrderingResult]:
         n = len(registry)
         A = lil_matrix((len(rows), n), dtype=float)
@@ -430,6 +479,14 @@ class OrderingPostProcessor:
             for mid in self.data.phases[pid].capacity
         )
         demand = sum(mov.demand for mov in self.data.movements.values()) * cycle
+        margin_values = {
+            mid: sum(
+                self.data.phases[pid].capacity.get(mid, 0.0) * greens[pid]
+                for pid in order
+            ) - mov.demand * cycle
+            for mid, mov in self.data.movements.items()
+        }
+        min_margin = min(margin_values.values()) if margin_values else None
         sigmas: Dict[str, float] = {}
         for slack in slack_specs:
             name = slack.base_name or slack.spec_name
@@ -443,5 +500,6 @@ class OrderingPostProcessor:
             sigmas=sigmas,
             status="optimal" if res.status == 0 else "time_limit",
             message=str(res.message),
+            min_margin=None if min_margin is None else float(min_margin),
             values=values,
         )

@@ -301,6 +301,114 @@ function renderReferenceOrderEditor() {
   commit();
 }
 
+function normalizeOrderRules(rules, phases) {
+  const known = new Set(phases.map((phase) => phase.id));
+  const first = phases[0]?.id || '';
+  const second = phases[1]?.id || first;
+  return (Array.isArray(rules) ? rules : [])
+    .filter((rule) => rule && typeof rule === 'object')
+    .map((rule) => {
+      const type = ['precedence', 'adjacent', 'forbidden_adjacent'].includes(rule.type)
+        ? rule.type
+        : 'precedence';
+      const idA = known.has(rule.before) ? rule.before : (known.has(rule.a) ? rule.a : first);
+      const idB = known.has(rule.after) ? rule.after : (known.has(rule.b) ? rule.b : second);
+      if (type === 'precedence') return { type, before: idA, after: idB };
+      return { type, a: idA, b: idB };
+    });
+}
+
+function orderRuleSummary(rule) {
+  if (rule.type === 'precedence') return `${rule.before} 必须排在 ${rule.after} 之前`;
+  if (rule.type === 'adjacent') return `${rule.a} 与 ${rule.b} 必须相邻`;
+  if (rule.type === 'forbidden_adjacent') return `${rule.a} 与 ${rule.b} 禁止相邻`;
+  return '';
+}
+
+function renderOrderRulesEditor() {
+  const wrap = $('solver-rules-editor');
+  if (!wrap) return;
+  const phases = state.intersection?.phases || [];
+  if (!phases.length) {
+    wrap.innerHTML = '<div class="hint">暂无相位，无法编辑顺序规则。</div>';
+    return;
+  }
+  let rules = normalizeOrderRules(state.solver.order_rules, phases);
+  const commit = () => {
+    state.solver.order_rules = deepClone(rules);
+  };
+  const phaseSelect = (index, field, selected) => `
+    <select data-rule-field="${field}" data-rule-index="${index}">
+      ${phases.map((phase) => `<option value="${escapeHtml(phase.id)}" ${phase.id === selected ? 'selected' : ''}>${escapeHtml(phase.id)}</option>`).join('')}
+    </select>`;
+
+  const render = () => {
+    wrap.innerHTML = `
+      <div class="rule-list">
+        ${rules.map((rule, index) => `
+          <div class="rule-row" data-rule-index="${index}">
+            <select data-rule-field="type" data-rule-index="${index}">
+              <option value="precedence" ${rule.type === 'precedence' ? 'selected' : ''}>precedence（前序）</option>
+              <option value="adjacent" ${rule.type === 'adjacent' ? 'selected' : ''}>adjacent（相邻）</option>
+              <option value="forbidden_adjacent" ${rule.type === 'forbidden_adjacent' ? 'selected' : ''}>forbidden_adjacent（禁止相邻）</option>
+            </select>
+            ${rule.type === 'precedence'
+              ? `
+                <span class="rule-label">before</span>${phaseSelect(index, 'before', rule.before)}
+                <span class="rule-arrow">→</span>
+                <span class="rule-label">after</span>${phaseSelect(index, 'after', rule.after)}`
+              : `
+                <span class="rule-label">a</span>${phaseSelect(index, 'a', rule.a)}
+                <span class="rule-label">b</span>${phaseSelect(index, 'b', rule.b)}`}
+            <button type="button" class="mini-btn" data-rule-action="delete" data-rule-index="${index}">删除</button>
+          </div>`).join('') || '<div class="hint">暂无顺序规则，候选排列不会被额外过滤。</div>'}
+      </div>
+      <button type="button" class="mini-btn" data-rule-action="add">+ 添加规则</button>
+      <div class="ref-preview">
+        ${rules.length ? rules.map((rule) => escapeHtml(orderRuleSummary(rule))).join('<br>') : '当前没有 order_rules。'}
+      </div>`;
+
+    wrap.querySelectorAll('[data-rule-field]').forEach((element) => {
+      element.addEventListener('change', () => {
+        const index = Number(element.dataset.ruleIndex);
+        const field = element.dataset.ruleField;
+        const rule = rules[index];
+        if (!rule) return;
+        if (field === 'type') {
+          const idA = rule.before ?? rule.a ?? phases[0]?.id;
+          const idB = rule.after ?? rule.b ?? phases[1]?.id ?? idA;
+          rules[index] = element.value === 'precedence'
+            ? { type: 'precedence', before: idA, after: idB }
+            : { type: element.value, a: idA, b: idB };
+        } else {
+          rule[field] = element.value;
+        }
+        commit();
+        render();
+      });
+    });
+
+    wrap.querySelectorAll('[data-rule-action]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const action = button.dataset.ruleAction;
+        if (action === 'add') {
+          rules.push({
+            type: 'precedence',
+            before: phases[0]?.id || '',
+            after: phases[1]?.id || phases[0]?.id || '',
+          });
+        } else if (action === 'delete') {
+          rules.splice(Number(button.dataset.ruleIndex), 1);
+        }
+        commit();
+        render();
+      });
+    });
+  };
+  render();
+  commit();
+}
+
 function renderSolverEditor() {
   const node = $('solver-editor');
   if (!node) return;
@@ -313,6 +421,10 @@ function renderSolverEditor() {
       <label>eps_waste<input id="solver-eps-waste" type="number" min="0" step="0.001" value="${solver.eps_waste}" /></label>
       <label>waste_abs_tol<input id="solver-waste-abs" type="number" min="0" step="0.1" value="${solver.waste_abs_tol ?? ''}" placeholder="空=算法默认" /></label>
       <label>mip_rel_gap<input id="solver-mip-gap" type="number" min="0" step="0.0001" value="${solver.mip_rel_gap}" /></label>
+      <label>第二阶段目标<select id="solver-stage2-mode">
+        <option value="min_waste" ${solver.stage2_mode === 'min_waste' ? 'selected' : ''}>最小化通行能力浪费</option>
+        <option value="max_min_margin" ${solver.stage2_mode === 'max_min_margin' ? 'selected' : ''}>最大化最紧张流向裕量</option>
+      </select></label>
       <label>参考顺序模式<select id="solver-ref-mode">
         <option value="off" ${solver.reference_order_mode === 'off' ? 'selected' : ''}>off</option>
         <option value="hard" ${solver.reference_order_mode === 'hard' ? 'selected' : ''}>hard</option>
@@ -326,7 +438,8 @@ function renderSolverEditor() {
       <div id="solver-ref-editor"></div>
     </div>
     <div class="form-row">
-      <label>order_rules (JSON 数组)<textarea id="solver-rules" placeholder='[{"type":"precedence","before":"P1","after":"P2"}]'>${escapeHtml(JSON.stringify(solver.order_rules || []))}</textarea></label>
+      <label>order_rules（相位顺序规则）</label>
+      <div id="solver-rules-editor"></div>
     </div>
     <div class="form-grid">
       <label class="checkline"><input id="solver-run-ordering" type="checkbox" ${solver.run_ordering ? 'checked' : ''} /> 运行排序</label>
@@ -344,18 +457,13 @@ function renderSolverEditor() {
     const abs = $('solver-waste-abs').value;
     state.solver.waste_abs_tol = abs === '' ? null : Number(abs);
     state.solver.mip_rel_gap = Number($('solver-mip-gap').value);
+    state.solver.stage2_mode = $('solver-stage2-mode').value;
     state.solver.reference_order_mode = $('solver-ref-mode').value;
     state.solver.max_fallback = Number($('solver-max-fallback').value);
     state.solver.run_ordering = $('solver-run-ordering').checked;
     state.solver.allow_cycle_reduction = $('solver-cycle-reduction').checked;
     state.solver.enforce_zero_slack = $('solver-zero-slack').checked;
     state.solver.disp = $('solver-disp').checked;
-    try {
-      const rulesText = $('solver-rules').value.trim();
-      state.solver.order_rules = rulesText ? JSON.parse(rulesText) : [];
-    } catch (err) {
-      toast('order_rules JSON 格式错误', 'error');
-    }
   };
   node.querySelectorAll('input, select, textarea').forEach((element) => {
     if (element.dataset.refLayer !== undefined) return;
@@ -363,6 +471,7 @@ function renderSolverEditor() {
     if (element.tagName === 'INPUT' && element.type !== 'checkbox') element.addEventListener('input', read);
   });
   renderReferenceOrderEditor();
+  renderOrderRulesEditor();
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +519,13 @@ function renamePhase(oldId, nextId) {
     if (Array.isArray(group)) return group.map((phaseId) => (phaseId === oldId ? nextId : phaseId));
     return group === oldId ? nextId : group;
   });
+  state.solver.order_rules = (state.solver.order_rules || []).map((rule) => {
+    const copy = { ...rule };
+    for (const field of ['before', 'after', 'a', 'b']) {
+      if (copy[field] === oldId) copy[field] = nextId;
+    }
+    return copy;
+  });
   state.selectedPhaseId = nextId;
   renderAll();
   renderSolverEditor();
@@ -425,6 +541,9 @@ function deletePhase(phaseId) {
     })
     .filter((group) => group !== null && (!Array.isArray(group) || group.length > 0));
   if (!state.solver.reference_order.length) state.solver.reference_order = null;
+  state.solver.order_rules = (state.solver.order_rules || []).filter((rule) => (
+    !['before', 'after', 'a', 'b'].some((field) => rule[field] === phaseId)
+  ));
   if (state.selectedPhaseId === phaseId) state.selectedPhaseId = null;
   renderAll();
   renderSolverEditor();

@@ -96,6 +96,7 @@ class SolverConfig(BaseModel):
     run_ordering: bool = True
     allow_cycle_reduction: bool = True
     enforce_zero_slack: bool = False
+    stage2_mode: Literal["min_waste", "max_min_margin"] = "min_waste"
     disp: bool = False
     max_fallback: int = Field(20, ge=0)
 

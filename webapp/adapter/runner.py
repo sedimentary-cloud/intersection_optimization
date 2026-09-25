@@ -197,6 +197,7 @@ def solve_with_data(
         reference_order=reference_order,
         reference_mode=reference_mode,
         enforce_zero_slack=solver_config.enforce_zero_slack,
+        stage2_mode=solver_config.stage2_mode,
     )
 
     if cancel_event is not None and cancel_event.is_set():

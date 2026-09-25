@@ -144,4 +144,6 @@ def result_to_dict(data: IntersectionData, result: OptimizationResult) -> Dict[s
         "phase_count": int(getattr(result, "phase_count", len(selected))),
         "cycle_clearance": float(clearance),
         "cycle_slack": float(ring_slack),
+        "min_margin": _jsonable(getattr(result, "min_margin", None)),
+        "stage2_mode": str(getattr(result, "stage2_mode", "min_waste")),
     }

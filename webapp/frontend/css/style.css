@@ -205,6 +205,16 @@ table.data-table input:focus, table.data-table select:focus { outline: none; bor
   background: #ffffff; border: 1px solid var(--line); border-radius: 6px;
 }
 .ref-preview-layer b { color: #1d4ed8; margin-right: 4px; }
+.rule-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 8px; }
+.rule-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel-soft);
+}
+.rule-row select { min-width: 118px; }
+.rule-label { color: var(--muted); font-size: 12px; }
+.rule-arrow { color: #64748b; font-size: 14px; }
+.rule-row .mini-btn { margin-left: auto; }
 
 .coeff-row { display: grid; grid-template-columns: 64px 1fr 82px 30px; gap: 6px; margin-bottom: 6px; }
 .coeff-row button { border: 1px solid var(--line); background: var(--panel-soft); border-radius: 6px; color: var(--red); }

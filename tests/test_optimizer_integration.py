@@ -59,6 +59,37 @@ class TestOptimizerIntegration(unittest.TestCase):
         self.assertEqual(result.selected, ["P1", "P2"])
         self.assertTrue(result.verification["passed"])
 
+    def test_stage2_max_min_margin_mode(self):
+        data = two_phase_data(demand_e=600, demand_w=600)
+        baseline = self._opt(data).solve(
+            allow_cycle_reduction=False, stage2_mode="min_waste"
+        )
+        result = self._opt(data).solve(
+            allow_cycle_reduction=False, stage2_mode="max_min_margin"
+        )
+        self.assertEqual(result.stage2_mode, "max_min_margin")
+        self.assertIsNotNone(result.min_margin)
+        self.assertIsNotNone(baseline.min_margin)
+        self.assertGreaterEqual(result.min_margin, baseline.min_margin - 1e-5)
+        self.assertTrue(result.verification["passed"])
+
+    def test_stage2_mode_invalid(self):
+        data = two_phase_data()
+        with self.assertRaises(ValueError):
+            self._opt(data).solve(stage2_mode="bad_mode")
+
+    def test_stage2_max_min_margin_respects_real_min_cycle(self):
+        data = three_phase_asym_data(low=2.0, high=20.0)
+        baseline = self._opt(data).solve(
+            allow_cycle_reduction=True, stage2_mode="min_waste"
+        )
+        result = self._opt(data).solve(
+            allow_cycle_reduction=True, stage2_mode="max_min_margin"
+        )
+        self.assertLessEqual(result.cycle, baseline.cycle + 1e-4)
+        self.assertGreater(result.min_margin, baseline.min_margin)
+        self.assertTrue(result.verification["passed"])
+
     # ------------------------------------------------------------------ #
     # §9.5 周期回收
     # ------------------------------------------------------------------ #

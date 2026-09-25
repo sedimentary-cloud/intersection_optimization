@@ -34,6 +34,8 @@ class Stage1Result:
     values: Dict[Tuple[str, str], float]
     cycle_cap: Optional[float] = None
     model: Any = None
+    min_margin: Optional[float] = None
+    stage2_mode: str = "min_waste"
 
 
 @dataclass
@@ -54,6 +56,8 @@ class OptimizationResult:
     verification: Dict[str, Any] = field(default_factory=dict)
     status: str = "optimal"
     message: str = ""
+    min_margin: Optional[float] = None
+    stage2_mode: str = "min_waste"
 
     @property
     def phase_count(self) -> int:

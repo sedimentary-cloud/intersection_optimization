@@ -29,20 +29,29 @@ class LexicographicPipeline:
         *,
         eps_cycle: float = 0.01,
         eps_waste: float = 0.01,
+        eps_margin: float = 0.01,
         delta_abs: Optional[float] = None,
         mip_rel_gap: float = 0.005,
         time_limit: float = 300.0,
         disp: bool = False,
+        stage2_mode: str = "min_waste",
     ) -> None:
         self.data = data
         self.specs = list(specs or [])
         self.eps_cycle = float(eps_cycle)
         self.eps_waste = float(eps_waste)
+        self.eps_margin = float(eps_margin)
         self.mip_rel_gap = float(mip_rel_gap)
         self.time_limit = float(time_limit)
         self.disp = bool(disp)
-        if self.eps_cycle < 0 or self.eps_waste < 0:
-            raise ValueError("eps_cycle / eps_waste 必须 >= 0")
+        if stage2_mode not in ("min_waste", "max_min_margin"):
+            raise ValueError(
+                "stage2_mode 必须是 'min_waste' 或 'max_min_margin'，"
+                f"收到 {stage2_mode!r}"
+            )
+        self.stage2_mode = str(stage2_mode)
+        if self.eps_cycle < 0 or self.eps_waste < 0 or self.eps_margin < 0:
+            raise ValueError("eps_cycle / eps_waste / eps_margin 必须 >= 0")
         if self.eps_cycle < self.mip_rel_gap:
             raise ValueError(
                 f"eps_cycle={self.eps_cycle} 小于 mip_rel_gap={self.mip_rel_gap}，"
@@ -84,6 +93,11 @@ class LexicographicPipeline:
             rhs=rhs,
             note=f"锁定 waste <= {w_safe:.6g} * (1+{self.eps_waste}) + {self.delta_abs:.6g}",
         )
+
+    def margin_lock_rhs(self, z_star: float) -> float:
+        """max-min margin 模式第三阶段的 z 下界。"""
+        tolerance = max(1e-6, abs(float(z_star)) * self.eps_margin)
+        return float(z_star) - tolerance
 
     # ------------------------------------------------------------------ #
     # 求解
@@ -155,15 +169,45 @@ class LexicographicPipeline:
             model.add_upper_bound_row(("C", ""), lock_rhs, "lock_cycle")
             locked["lock_cycle"] = f"C <= {lock_rhs:.6g} (C*={c_star:.6g})"
 
-        # ---- 第 2 轮：min 浪费 ----
-        sol2 = self._solve_round(
-            model, self.waste_coeffs(), "round2_min_waste", locked=locked
-        )
-        w_star = model.waste_value(sol2.values)
-        rounds.append(self._trace(model, sol2, "round2_min_waste", "min waste", cycle=c_star))
-        waste_lock = self.waste_lock_row(w_star)
-        model.add_row(waste_lock)
-        locked[waste_lock.name] = waste_lock.note
+        # ---- 第 2 轮：min 浪费 / max 最紧张流向裕量 ----
+        if self.stage2_mode == "min_waste":
+            sol2 = self._solve_round(
+                model, self.waste_coeffs(), "round2_min_waste", locked=locked
+            )
+            w_star = model.waste_value(sol2.values)
+            rounds.append(
+                self._trace(model, sol2, "round2_min_waste", "min waste", cycle=c_star)
+            )
+            waste_lock = self.waste_lock_row(w_star)
+            model.add_row(waste_lock)
+            locked[waste_lock.name] = waste_lock.note
+            stage2_value: Optional[float] = w_star
+        else:
+            z_key = model.register_min_margin()
+            model.add_min_margin_rows(z_key)
+            sol2 = self._solve_round(
+                model,
+                {z_key: -1.0},
+                "round2_max_min_margin",
+                locked=locked,
+            )
+            z_star = float(sol2.values.get(z_key, 0.0))
+            rounds.append(
+                self._trace(
+                    model,
+                    sol2,
+                    "round2_max_min_margin",
+                    "max min margin",
+                    cycle=c_star,
+                    objective_value=z_star,
+                )
+            )
+            margin_lock = model.add_min_margin_lock(
+                z_star,
+                tolerance=max(1e-6, abs(z_star) * self.eps_margin),
+            )
+            locked[margin_lock.name] = margin_lock.note
+            stage2_value = z_star
 
         # ---- 第 3 轮：min 相位数 ----
         sol3 = self._solve_round(
@@ -178,6 +222,7 @@ class LexicographicPipeline:
         greens = model.selected_greens(sol3.values)
         cycle = model.cycle_value(sol3.values)
         waste = model.waste_value(sol3.values)
+        min_margin = model.min_margin_value(sol3.values)
         sigmas = self._aggregate_sigmas(model, sol3.values)
 
         return Stage1Result(
@@ -190,6 +235,8 @@ class LexicographicPipeline:
             values=dict(sol3.values),
             cycle_cap=c_star,
             model=model,
+            min_margin=min_margin,
+            stage2_mode=self.stage2_mode,
         )
 
     # ------------------------------------------------------------------ #
@@ -225,11 +272,12 @@ class LexicographicPipeline:
         objective_name: str,
         *,
         cycle: Optional[float] = None,
+        objective_value: Optional[float] = None,
     ) -> RoundTrace:
         return RoundTrace(
             name=name,
             objective_name=objective_name,
-            objective_value=float(sol.fun),
+            objective_value=float(sol.fun) if objective_value is None else float(objective_value),
             status="optimal" if sol.status == 0 else "time_limit",
             message=sol.message,
             cycle=model.cycle_value(sol.values) if cycle is None else cycle,

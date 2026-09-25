@@ -236,6 +236,81 @@ class Stage1Model:
         return row
 
     # ------------------------------------------------------------------ #
+    # 最小通行裕量（max-min margin）辅助
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def min_margin_key() -> VarKey:
+        return ("z", "")
+
+    def margin_upper_bound(self) -> float:
+        """z 的物理上界：单个流向在一个周期内能获得的最大服务量。"""
+        capacities = [self.data.max_capacity(mid) for mid in self.data.movement_ids]
+        upper = max(capacities, default=0.0) * self.data.c_max
+        return upper if upper > 0.0 else self.data.c_max
+
+    def register_min_margin(self) -> VarKey:
+        key = self.min_margin_key()
+        if not self.registry.contains(key):
+            self.registry.register(
+                key,
+                0.0,
+                self.margin_upper_bound(),
+                integrality=0,
+                kind="z",
+            )
+        return key
+
+    def add_min_margin_rows(self, key: Optional[VarKey] = None) -> VarKey:
+        """加入 sum_p a_pm g_p - q_m C - z >= 0，对所有流向生效。"""
+        z_key = key or self.register_min_margin()
+        if not self.registry.contains(z_key):
+            raise ConstraintError(f"最小裕量变量 {z_key} 未注册")
+        for mid, mov in self.data.movements.items():
+            coeffs: Dict[VarKey, float] = {
+                z_key: -1.0,
+                ("C", ""): -float(mov.demand),
+            }
+            for pid, ph in self.data.phases.items():
+                a = ph.capacity.get(mid, 0.0)
+                if a > 0.0:
+                    coeffs[("g", pid)] = float(a)
+            self.add_row(
+                CompiledRow(
+                    name=f"margin[{mid}]",
+                    coeffs=coeffs,
+                    sense=">=",
+                    rhs=0.0,
+                    note="最紧张流向裕量约束：margin_m >= z",
+                )
+            )
+        return z_key
+
+    def add_min_margin_lock(self, z_star: float, *, tolerance: float = 0.0) -> CompiledRow:
+        z_key = self.register_min_margin()
+        rhs = float(z_star) - max(0.0, float(tolerance))
+        row = CompiledRow(
+            name="lock_min_margin",
+            coeffs={z_key: 1.0},
+            sense=">=",
+            rhs=rhs,
+            note=f"锁定 z >= {rhs:.6g} (z*={float(z_star):.6g})",
+        )
+        self.add_row(row)
+        return row
+
+    def min_margin_value(self, values: Dict[VarKey, float]) -> Optional[float]:
+        """由当前变量取值计算最终的最小流向裕量。"""
+        margins = []
+        cycle = float(values.get(("C", ""), 0.0))
+        for mid, mov in self.data.movements.items():
+            service = sum(
+                float(ph.capacity.get(mid, 0.0)) * float(values.get(("g", pid), 0.0))
+                for pid, ph in self.data.phases.items()
+            )
+            margins.append(service - float(mov.demand) * cycle)
+        return min(margins) if margins else None
+
+    # ------------------------------------------------------------------ #
     # 目标函数
     # ------------------------------------------------------------------ #
     def penalty_objective(self) -> Dict[VarKey, float]:

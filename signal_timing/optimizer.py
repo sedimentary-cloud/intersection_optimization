@@ -70,6 +70,7 @@ class LexicographicOptimizer:
         *,
         eps_cycle: float = 0.01,
         eps_waste: float = 0.01,
+        eps_margin: float = 0.01,
         delta_abs: Optional[float] = None,
         mip_rel_gap: float = 0.005,
         time_limit: float = 300.0,
@@ -79,6 +80,7 @@ class LexicographicOptimizer:
         self.data = data
         self.eps_cycle = float(eps_cycle)
         self.eps_waste = float(eps_waste)
+        self.eps_margin = float(eps_margin)
         self.delta_abs = delta_abs
         self.mip_rel_gap = float(mip_rel_gap)
         self.time_limit = float(time_limit)
@@ -156,16 +158,24 @@ class LexicographicOptimizer:
         reference_mode: str = "prefer",
         reference_tolerance: float = 1e-3,
         enforce_zero_slack: bool = False,
+        stage2_mode: str = "min_waste",
     ) -> OptimizationResult:
+        if stage2_mode not in ("min_waste", "max_min_margin"):
+            raise ValueError(
+                "stage2_mode 必须是 'min_waste' 或 'max_min_margin'，"
+                f"收到 {stage2_mode!r}"
+            )
         pipeline = LexicographicPipeline(
             self.data,
             self.specs,
             eps_cycle=self.eps_cycle,
             eps_waste=self.eps_waste,
+            eps_margin=self.eps_margin,
             delta_abs=self.delta_abs,
             mip_rel_gap=self.mip_rel_gap,
             time_limit=self.time_limit,
             disp=self.disp,
+            stage2_mode=stage2_mode,
         )
         clearance_mode = "max"
         if fixed_cycle is not None:
@@ -195,6 +205,37 @@ class LexicographicOptimizer:
             )
         )
 
+        # max_min_margin 模式：先用真实清空时间求一个真正的最小周期上界，
+        # 避免把第一阶段保守清空时间释放出来的周期空间全部让给裕量。
+        ordering_cycle_upper = cycle_cap
+        if (
+            run_ordering
+            and fixed_cycle is None
+            and allow_cycle_reduction
+            and stage2_mode == "max_min_margin"
+        ):
+            min_cycle_processor = OrderingPostProcessor(
+                self.data,
+                self.specs,
+                time_limit=self.time_limit,
+                disp=self.disp,
+            )
+            min_cycle_result = min_cycle_processor.process(
+                stage1.selected,
+                cycle_cap,
+                cycle_fixed=False,
+                order_filter=order_filter,
+                reference_order=effective_reference,
+                reference_mode=reference_mode,
+                reference_tolerance=reference_tolerance,
+                enforce_zero_slack=enforce_zero_slack,
+                stage2_mode="min_cycle",
+            )
+            if min_cycle_result is not None:
+                ordering_cycle_upper = (
+                    min_cycle_result.cycle * (1.0 + 1e-6) + 1e-6
+                )
+
         ordering_result: Optional[OrderingResult] = None
         if run_ordering:
             while True:
@@ -214,18 +255,20 @@ class LexicographicOptimizer:
                         reference_mode=reference_mode,
                         reference_tolerance=reference_tolerance,
                         enforce_zero_slack=enforce_zero_slack,
+                        stage2_mode=stage2_mode,
                     )
                 elif allow_cycle_reduction:
                     # §9.5：第二阶段允许 C ∈ [c_min, C*]，回收保守清空时间损失
                     ordering_result = processor.process(
                         stage1.selected,
-                        cycle_cap,
+                        ordering_cycle_upper,
                         cycle_fixed=False,
                         order_filter=order_filter,
                         reference_order=effective_reference,
                         reference_mode=reference_mode,
                         reference_tolerance=reference_tolerance,
                         enforce_zero_slack=enforce_zero_slack,
+                        stage2_mode=stage2_mode,
                     )
                 else:
                     ordering_result = processor.process(
@@ -237,6 +280,7 @@ class LexicographicOptimizer:
                         reference_mode=reference_mode,
                         reference_tolerance=reference_tolerance,
                         enforce_zero_slack=enforce_zero_slack,
+                        stage2_mode=stage2_mode,
                     )
                 if ordering_result is not None:
                     break
@@ -304,6 +348,16 @@ class LexicographicOptimizer:
             status = "optimal"
             message = "未运行排序后处理（run_ordering=False）"
 
+        min_margin: Optional[float] = None
+        if isinstance(verification, dict):
+            service_margins = verification.get("service_margins") or {}
+            if service_margins:
+                min_margin = min(float(value) for value in service_margins.values())
+        if min_margin is None and ordering_result is not None:
+            min_margin = ordering_result.min_margin
+        if min_margin is None:
+            min_margin = getattr(stage1, "min_margin", None)
+
         return OptimizationResult(
             cycle=cycle,
             selected=selected,
@@ -319,6 +373,8 @@ class LexicographicOptimizer:
             verification=verification,
             status=status,
             message=message,
+            min_margin=min_margin,
+            stage2_mode=stage2_mode,
         )
 
     # ------------------------------------------------------------------ #

@@ -85,6 +85,15 @@ class AdapterContractTests(unittest.TestCase):
         self.assertIsNotNone(result.order)
         self.assertIn(data.movement_ids, [["E", "W"], ["W", "E"]])
 
+    def test_run_optimize_max_min_margin(self) -> None:
+        payload = _two_phase_request()
+        payload["solver"]["stage2_mode"] = "max_min_margin"
+        request = OptimizeRequest.model_validate(payload)
+        _data, result = run_optimize_request(request)
+        self.assertEqual(result.stage2_mode, "max_min_margin")
+        self.assertIsNotNone(result.min_margin)
+        self.assertTrue(result.verification["passed"])
+
 
 if __name__ == "__main__":
     unittest.main()
